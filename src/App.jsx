@@ -23,14 +23,28 @@ const sb = {
   },
 };
 
+// Converte DD/MM/AAAA ou qualquer formato para AAAA-MM-DD para o Supabase
+function toISODate(str) {
+  if (!str || str.trim() === "") return null;
+  // DD/MM/AAAA
+  const dmY = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dmY) return `${dmY[3]}-${dmY[2].padStart(2,"0")}-${dmY[1].padStart(2,"0")}`;
+  // Já está em AAAA-MM-DD
+  const ymd = str.match(/^\d{4}-\d{2}-\d{2}$/);
+  if (ymd) return str;
+  return null;
+}
+
 function toDB(c) {
   return {
     id:c.id, name:c.name, tech:c.tech, n_contracts:c.nContracts,
-    contract_active:c.contractActive, category:c.category, contract_end:c.contractEnd,
-    last_contact_log:c.lastContactLog, last_contact_ssm:c.lastContactSSM,
-    am:c.am, am_knows:c.amKnows, tickets_90d:c.tickets90d||0, ticket_type:c.ticketType,
+    contract_active:c.contractActive, category:c.category,
+    contract_end:toISODate(c.contractEnd),
+    last_contact_log:c.lastContactLog,
+    last_contact_ssm:toISODate(c.lastContactSSM),
+    am:c.am, am_knows:c.amKnows, tickets_90d:Number(c.tickets90d)||0, ticket_type:c.ticketType,
     commercial_contact:c.commercialContact, renewal_history:c.renewalHistory,
-    inactivity_reason:c.inactivityReason, observations:c.observations,
+    inactivity_reason:c.inactivityReason, observations:c.observations||"",
     folder_path:c.folderPath||"", br_frequency:c.brFrequency||"Trimestral",
     aws_history:c.awsHistory||[], azure_history:c.azureHistory||[],
     m365_history:c.m365History||[], br_reviews:c.brReviews||[],
