@@ -681,6 +681,47 @@ function FormSection({ title, children }) {
   );
 }
 
+// ─── Form field components (fora do ClientForm para evitar re-mount no re-render) ──
+function FInp({ label, field, value, onChange, type="text", span=1, placeholder="", css, T }) {
+  return (
+    <div style={{ gridColumn:`span ${span}` }}>
+      <label style={css.label}>{label}</label>
+      <input type={type} value={value ?? ""} placeholder={placeholder}
+        onChange={e => onChange(field, e.target.value)}
+        style={css.input} />
+    </div>
+  );
+}
+
+function FSel({ label, field, value, onChange, options, span=1, css }) {
+  return (
+    <div style={{ gridColumn:`span ${span}` }}>
+      <label style={css.label}>{label}</label>
+      <select value={value ?? ""} onChange={e => onChange(field, e.target.value)} style={css.select}>
+        {options.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  );
+}
+
+function FHistRow({ label, field, values, onChange, color, css, T }) {
+  return (
+    <div>
+      <label style={css.label}>{label}</label>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:6 }}>
+        {MONTHS.map((m,i) => (
+          <div key={m}>
+            <div style={{ fontSize:10, color:T.textSub, textAlign:"center", marginBottom:3 }}>{m}</div>
+            <input type="number" value={values?.[i] ?? ""}
+              onChange={e => onChange(field, i, e.target.value)}
+              style={{ ...css.input, textAlign:"center", padding:"6px 4px", borderColor:`${color}60` }}/>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ClientForm({ initial, onSave, onCancel }) {
   const T = useT();
   const css = mkCss(T);
@@ -711,63 +752,35 @@ function ClientForm({ initial, onSave, onCancel }) {
     brReviews: initial?.brReviews || [],
   }));
 
-  const set = (field, val) => setForm(f => ({...f, [field]: val}));
-  const setHist = (field, idx, val) => setForm(f => {
-    const arr = [...(f[field] || Array(6).fill(""))];
-    arr[idx] = val === "" ? "" : isNaN(Number(val)) ? val : Number(val);
-    return {...f, [field]: arr};
-  });
+  const set = useCallback((field, val) =>
+    setForm(f => ({...f, [field]: val})), []);
+
+  const setHist = useCallback((field, idx, val) =>
+    setForm(f => {
+      const arr = [...(f[field] || Array(6).fill(""))];
+      arr[idx] = val === "" ? "" : isNaN(Number(val)) ? val : Number(val);
+      return {...f, [field]: arr};
+    }), []);
 
   const collect = () => ({
     ...form,
     id: form.id || `BR-SCU-${Date.now().toString().slice(-6)}`,
   });
 
-  const Inp = ({ label, field, type="text", span=1, placeholder="" }) => (
-    <div style={{ gridColumn:`span ${span}` }}>
-      <label style={css.label}>{label}</label>
-      <input type={type} value={form[field] ?? ""} placeholder={placeholder}
-        onChange={e => set(field, e.target.value)}
-        style={css.input} />
-    </div>
-  );
-
-  const Sel = ({ label, field, options, span=1 }) => (
-    <div style={{ gridColumn:`span ${span}` }}>
-      <label style={css.label}>{label}</label>
-      <select value={form[field] ?? ""} onChange={e => set(field, e.target.value)} style={css.select}>
-        {options.map(o=><option key={o} value={o}>{o}</option>)}
-      </select>
-    </div>
-  );
-
-  const HistoryRow = ({ label, prefix, field, color }) => (
-    <div>
-      <label style={css.label}>{label}</label>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:6 }}>
-        {MONTHS.map((m,i)=>(
-          <div key={m}>
-            <div style={{ fontSize:10, color:T.textSub, textAlign:"center", marginBottom:3 }}>{m}</div>
-            <input type="number" value={form[field]?.[i] ?? ""}
-              onChange={e => setHist(field, i, e.target.value)}
-              style={{ ...css.input, textAlign:"center", padding:"6px 4px", borderColor:`${color}60` }}/>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  const p = { onChange: set, css, T };
+  const ph = { onChange: setHist, css, T };
 
   return (
     <div>
       <FormSection title="📋 Identificação & Contrato">
-        <Inp label="Nome do Cliente *" field="name" span={2}/>
-        <Inp label="SCU / ID Interno" field="id"/>
-        <Sel label="Tecnologia Principal" field="tech" options={TECH_OPTIONS}/>
-        <Sel label="Categoria" field="category" options={CATEGORY_OPTIONS}/>
-        <Inp label="Nº de Contratos" field="nContracts" type="number"/>
-        <Sel label="Contrato Realmente Ativo?" field="contractActive" options={SIM_NAO}/>
-        <Inp label="Vencimento do Contrato (DD/MM/AAAA)" field="contractEnd" placeholder="Ex: 31/12/2026"/>
-        <Inp label="Account Manager" field="am"/>
+        <FInp {...p} label="Nome do Cliente *" field="name" value={form.name} span={2}/>
+        <FInp {...p} label="SCU / ID Interno" field="id" value={form.id}/>
+        <FSel {...p} label="Tecnologia Principal" field="tech" value={form.tech} options={TECH_OPTIONS}/>
+        <FSel {...p} label="Categoria" field="category" value={form.category} options={CATEGORY_OPTIONS}/>
+        <FInp {...p} label="Nº de Contratos" field="nContracts" value={form.nContracts} type="number"/>
+        <FSel {...p} label="Contrato Realmente Ativo?" field="contractActive" value={form.contractActive} options={SIM_NAO}/>
+        <FInp {...p} label="Vencimento do Contrato (DD/MM/AAAA)" field="contractEnd" value={form.contractEnd} placeholder="Ex: 31/12/2026"/>
+        <FInp {...p} label="Account Manager" field="am" value={form.am}/>
       </FormSection>
 
       <div style={{ background:T.card, borderRadius:12, border:`1px solid ${T.border}`, padding:20, marginBottom:14 }}>
@@ -775,31 +788,31 @@ function ClientForm({ initial, onSave, onCancel }) {
           📊 Histórico de Consumo — Últimos 6 meses fechados ({MONTHS[0]} → {MONTHS[5]})
         </div>
         <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-          <HistoryRow label="AWS — Valor mensal (moeda do contrato)" prefix="aws" field="awsHistory" color="#f97316"/>
-          <HistoryRow label="Azure — Valor mensal (moeda do contrato)" prefix="azure" field="azureHistory" color="#3b82f6"/>
-          <HistoryRow label="M365-CSP — Licenças ativas por mês" prefix="m365" field="m365History" color="#f43f5e"/>
+          <FHistRow {...ph} label="AWS — Valor mensal (moeda do contrato)" field="awsHistory" values={form.awsHistory} color="#f97316"/>
+          <FHistRow {...ph} label="Azure — Valor mensal (moeda do contrato)" field="azureHistory" values={form.azureHistory} color="#3b82f6"/>
+          <FHistRow {...ph} label="M365-CSP — Licenças ativas por mês" field="m365History" values={form.m365History} color="#f43f5e"/>
         </div>
       </div>
 
       <FormSection title="🎫 Suporte & Comercial">
-        <Inp label="Tickets (últimos 90d)" field="tickets90d" type="number"/>
-        <Sel label="Tipo do Último Ticket" field="ticketType" options={TICKET_TYPES}/>
-        <Sel label="Contato Comercial (CRM)?" field="commercialContact" options={SIM_NAO}/>
+        <FInp {...p} label="Tickets (últimos 90d)" field="tickets90d" value={form.tickets90d} type="number"/>
+        <FSel {...p} label="Tipo do Último Ticket" field="ticketType" value={form.ticketType} options={TICKET_TYPES}/>
+        <FSel {...p} label="Contato Comercial (CRM)?" field="commercialContact" value={form.commercialContact} options={SIM_NAO}/>
       </FormSection>
 
       <FormSection title="🤝 Relacionamento SSM">
-        <Inp label="Data Último Contato SSM (DD/MM/AAAA)" field="lastContactSSM" placeholder="Ex: 15/05/2026"/>
-        <Sel label="Histórico de Renovação" field="renewalHistory" options={RENEWAL_OPTIONS}/>
-        <Sel label="AM Conhece o Cliente?" field="amKnows" options={SIM_NAO}/>
-        <Sel label="Motivo de Inatividade" field="inactivityReason" options={INACTIVITY_OPTIONS} span={2}/>
-        <Inp label="Último Contato (log tracker)" field="lastContactLog"/>
-        <Sel label="Freq. de Business Review" field="brFrequency" options={["Mensal","Bimestral","Trimestral","Semestral","Anual","Não definida"]}/>
+        <FInp {...p} label="Data Último Contato SSM (DD/MM/AAAA)" field="lastContactSSM" value={form.lastContactSSM} placeholder="Ex: 15/05/2026"/>
+        <FSel {...p} label="Histórico de Renovação" field="renewalHistory" value={form.renewalHistory} options={RENEWAL_OPTIONS}/>
+        <FSel {...p} label="AM Conhece o Cliente?" field="amKnows" value={form.amKnows} options={SIM_NAO}/>
+        <FSel {...p} label="Motivo de Inatividade" field="inactivityReason" value={form.inactivityReason} options={INACTIVITY_OPTIONS} span={2}/>
+        <FInp {...p} label="Último Contato (log tracker)" field="lastContactLog" value={form.lastContactLog}/>
+        <FSel {...p} label="Freq. de Business Review" field="brFrequency" value={form.brFrequency} options={["Mensal","Bimestral","Trimestral","Semestral","Anual","Não definida"]}/>
       </FormSection>
 
       <div style={{ background:T.card, borderRadius:12, border:`1px solid ${T.border}`, padding:20, marginBottom:14 }}>
         <div style={{ fontSize:12, fontWeight:700, color:T.text, paddingBottom:12, marginBottom:14, borderBottom:`1px solid ${T.borderLight}` }}>📁 Diretório do Cliente</div>
         <div>
-          <label style={css.label}>Caminho da Pasta (ex: /Users/perdomo/Documents/Clientes/Ascenty)</label>
+          <label style={css.label}>Caminho da Pasta</label>
           <div style={{ display:"flex", gap:8 }}>
             <input value={form.folderPath ?? ""} placeholder="/Users/perdomo/Documents/Clientes/NomeDoCliente"
               onChange={e => set("folderPath", e.target.value)}
