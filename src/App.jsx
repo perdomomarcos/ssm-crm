@@ -1,42 +1,25 @@
 import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from "react";
 import * as XLSX from "xlsx";
+import { createClient } from "@supabase/supabase-js";
 
 const STORAGE_KEY = "ssm_crm_v3";
 const SUPABASE_URL = "https://pdapxdlnbbhyyizbmtyi.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBkYXB4ZGxuYmJoeXlpemJtdHlpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3OTM2ODgsImV4cCI6MjA5NTM2OTY4OH0.N5YM1jl2cUbpANfeyT9y59RWSgxuPQC-ip_y6F1Jfio";
-
-async function fetchWithRetry(url, opts, retries=3, delay=800) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
-      const r = await fetch(url, { ...opts, signal: controller.signal });
-      clearTimeout(timeout);
-      if (r.ok) return r;
-      const txt = await r.text();
-      if (i === retries-1) throw new Error(txt);
-    } catch(e) {
-      if (i === retries-1) throw e;
-      await new Promise(res => setTimeout(res, delay * (i+1)));
-    }
-  }
-}
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const sb = {
-  h: { "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}`, "Content-Type":"application/json", "Prefer":"return=representation" },
   async getAll() {
-    const r = await fetchWithRetry(`${SUPABASE_URL}/rest/v1/clients?select=*&order=name.asc`, {headers:this.h});
-    return (await r.json()).map(fromDB);
+    const { data, error } = await supabase.from("clients").select("*").order("name");
+    if (error) throw error;
+    return (data||[]).map(fromDB);
   },
   async upsert(c) {
-    const r = await fetchWithRetry(`${SUPABASE_URL}/rest/v1/clients`, {
-      method:"POST", headers:{...this.h,"Prefer":"resolution=merge-duplicates,return=representation"},
-      body:JSON.stringify(toDB(c))
-    });
-    return r.json();
+    const { error } = await supabase.from("clients").upsert(toDB(c), { onConflict: "id" });
+    if (error) throw error;
   },
   async delete(id) {
-    await fetchWithRetry(`${SUPABASE_URL}/rest/v1/clients?id=eq.${id}`, {method:"DELETE",headers:this.h});
+    const { error } = await supabase.from("clients").delete().eq("id", id);
+    if (error) throw error;
   },
 };
 
