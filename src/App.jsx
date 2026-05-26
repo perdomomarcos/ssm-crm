@@ -1145,8 +1145,14 @@ export default function App() {
 
   useEffect(()=>{
     sb.getAll()
-      .then(list=>{ setClients(list); saveClients(list); })
-      .catch(()=>{ showToast("Modo offline — dados locais.","error"); })
+      .then(list=>{
+        if(list && list.length > 0) {
+          setClients(list);
+          saveClients(list);
+        }
+        // Se Supabase retornar vazio mas temos dados locais, manter os locais
+      })
+      .catch(()=>{ /* Modo offline — mantém dados do localStorage */ })
       .finally(()=>setLoading(false));
   },[]);
 
@@ -1154,21 +1160,28 @@ export default function App() {
 
   const handleSave = async updated => {
     try {
-      await sb.upsert(updated);
+      // Atualiza local PRIMEIRO — nunca perde o dado
       const idx = clients.findIndex(c=>c.id===updated.id);
       const next = idx>=0 ? clients.map(c=>c.id===updated.id?updated:c) : [...clients,updated];
-      await persist(next); setSelected(updated); setView("detail");
+      await persist(next);
+      setSelected(updated);
+      setView("detail");
       showToast(idx>=0?"Cliente atualizado.":"Cliente adicionado.");
-    } catch(err) { showToast(`Erro ao salvar: ${err.message}`,"error"); }
+      // Envia ao Supabase em background — falha silenciosa não afeta o usuário
+      sb.upsert(updated).catch(err => console.warn("Supabase sync error:", err));
+    } catch(err) {
+      showToast(`Erro ao salvar: ${err.message}`,"error");
+    }
   };
 
   const handleDelete = async id => {
     if(window.confirm("Remover este cliente?")) {
-      try {
-        await sb.delete(id);
-        await persist(clients.filter(c=>c.id!==id));
-        setView("list"); showToast("Cliente removido.","error");
-      } catch(err) { showToast(`Erro: ${err.message}`,"error"); }
+      // Remove local PRIMEIRO
+      await persist(clients.filter(c=>c.id!==id));
+      setView("list");
+      showToast("Cliente removido.", "error");
+      // Sincroniza com Supabase em background
+      sb.delete(id).catch(err => console.warn("Supabase delete error:", err));
     }
   };
 
@@ -1176,15 +1189,22 @@ export default function App() {
     setImporting(true);
     try {
       const imported = await parseExcelClients(file);
-      showToast(`Enviando ${imported.length} clientes…`);
-      for(let i=0;i<imported.length;i+=5) {
-        await Promise.all(imported.slice(i,i+5).map(c=>sb.upsert({folderPath:"",brReviews:[],brFrequency:"Trimestral",...c})));
-        await new Promise(res=>setTimeout(res,300));
-      }
-      const list = await sb.getAll();
-      await persist(list);
-      showToast(`${imported.length} clientes importados.`);
+      // Salva local PRIMEIRO
+      const map = Object.fromEntries(clients.map(c=>[c.id,c]));
+      imported.forEach(c=>{ map[c.id]={folderPath:"",brReviews:[],brFrequency:"Trimestral",...c}; });
+      const merged = Object.values(map);
+      await persist(merged);
       setView("list");
+      showToast(`${imported.length} clientes importados.`);
+      // Sincroniza Supabase em background
+      (async () => {
+        try {
+          for(let i=0;i<imported.length;i+=5) {
+            await Promise.all(imported.slice(i,i+5).map(c=>sb.upsert({folderPath:"",brReviews:[],brFrequency:"Trimestral",...c})));
+            await new Promise(res=>setTimeout(res,400));
+          }
+        } catch(e) { console.warn("Supabase import sync error:", e); }
+      })();
     } catch(err) { showToast(`Erro: ${err.message}`,"error"); }
     finally { setImporting(false); }
   };
