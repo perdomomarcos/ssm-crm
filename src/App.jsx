@@ -23,16 +23,29 @@ const sb = {
   },
 };
 
-// Converte DD/MM/AAAA ou qualquer formato para AAAA-MM-DD para o Supabase
+// Converte qualquer formato de data para AAAA-MM-DD — retorna null se inválido
 function toISODate(str) {
-  if (!str || str.trim() === "") return null;
-  // DD/MM/AAAA
-  const dmY = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (dmY) return `${dmY[3]}-${dmY[2].padStart(2,"0")}-${dmY[1].padStart(2,"0")}`;
-  // Já está em AAAA-MM-DD
-  const ymd = str.match(/^\d{4}-\d{2}-\d{2}$/);
-  if (ymd) return str;
-  return null;
+  try {
+    if (!str || str.trim() === "") return null;
+    const s = str.trim();
+    // DD/MM/AAAA ou D/M/AAAA
+    const dmY = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (dmY) {
+      const iso = `${dmY[3]}-${dmY[2].padStart(2,"0")}-${dmY[1].padStart(2,"0")}`;
+      // Valida a data gerada
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return null;
+      return iso;
+    }
+    // AAAA-MM-DD
+    const ymd = s.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})$/);
+    if (ymd) {
+      const d = new Date(s);
+      if (isNaN(d.getTime())) return null;
+      return s;
+    }
+    return null;
+  } catch(e) { return null; }
 }
 
 function toDB(c) {
@@ -751,7 +764,7 @@ function ClientForm({ initial, onSave, onCancel }) {
         <Sel label="Categoria" field="category" options={CATEGORY_OPTIONS}/>
         <Inp label="Nº de Contratos" field="nContracts" type="number"/>
         <Sel label="Contrato Realmente Ativo?" field="contractActive" options={SIM_NAO}/>
-        <Inp label="Vencimento do Contrato" field="contractEnd"/>
+        <Inp label="Vencimento do Contrato (DD/MM/AAAA)" field="contractEnd" placeholder="Ex: 31/12/2026"/>
         <Inp label="Account Manager" field="am"/>
       </FormSection>
 
@@ -773,7 +786,7 @@ function ClientForm({ initial, onSave, onCancel }) {
       </FormSection>
 
       <FormSection title="🤝 Relacionamento SSM">
-        <Inp label="Data Último Contato SSM" field="lastContactSSM"/>
+        <Inp label="Data Último Contato SSM (DD/MM/AAAA)" field="lastContactSSM" placeholder="Ex: 15/05/2026"/>
         <Sel label="Histórico de Renovação" field="renewalHistory" options={RENEWAL_OPTIONS}/>
         <Sel label="AM Conhece o Cliente?" field="amKnows" options={SIM_NAO}/>
         <Sel label="Motivo de Inatividade" field="inactivityReason" options={INACTIVITY_OPTIONS} span={2}/>
