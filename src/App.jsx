@@ -684,57 +684,58 @@ function FormSection({ title, children }) {
 function ClientForm({ initial, onSave, onCancel }) {
   const T = useT();
   const css = mkCss(T);
-  const defaults = {
-    id: initial?.id || "", name:"", tech:"Azure",
-    nContracts:"1", contractActive:"Desconhecido", category:"Desconhecido",
-    contractEnd:"", lastContactLog:"",
-    awsHistory:Array(6).fill(""), azureHistory:Array(6).fill(""), m365History:Array(6).fill(""),
-    tickets90d:"", ticketType:"Nenhum", commercialContact:"Desconhecido",
-    lastContactSSM:"", renewalHistory:"Desconhecido", amKnows:"Desconhecido",
-    inactivityReason:"Desconhecido", am:"", observations:"", folderPath:"",
-    ...(initial||{}),
-  };
 
-  const formRef = useRef();
-  const [selects, setSelects] = useState({
-    tech:defaults.tech, contractActive:defaults.contractActive,
-    category:defaults.category, ticketType:defaults.ticketType,
-    commercialContact:defaults.commercialContact, renewalHistory:defaults.renewalHistory,
-    amKnows:defaults.amKnows, inactivityReason:defaults.inactivityReason,
-    brFrequency:defaults.brFrequency||"Trimestral",
+  const [form, setForm] = useState(() => ({
+    id: initial?.id || "",
+    name: initial?.name || "",
+    tech: initial?.tech || "Azure",
+    nContracts: initial?.nContracts || "1",
+    contractActive: initial?.contractActive || "Desconhecido",
+    category: initial?.category || "Desconhecido",
+    contractEnd: initial?.contractEnd || "",
+    lastContactLog: initial?.lastContactLog || "",
+    awsHistory: initial?.awsHistory || Array(6).fill(""),
+    azureHistory: initial?.azureHistory || Array(6).fill(""),
+    m365History: initial?.m365History || Array(6).fill(""),
+    tickets90d: initial?.tickets90d || "",
+    ticketType: initial?.ticketType || "Nenhum",
+    commercialContact: initial?.commercialContact || "Desconhecido",
+    lastContactSSM: initial?.lastContactSSM || "",
+    renewalHistory: initial?.renewalHistory || "Desconhecido",
+    amKnows: initial?.amKnows || "Desconhecido",
+    inactivityReason: initial?.inactivityReason || "Desconhecido",
+    am: initial?.am || "",
+    observations: initial?.observations || "",
+    folderPath: initial?.folderPath || "",
+    brFrequency: initial?.brFrequency || "Trimestral",
+    brReviews: initial?.brReviews || [],
+  }));
+
+  const set = (field, val) => setForm(f => ({...f, [field]: val}));
+  const setHist = (field, idx, val) => setForm(f => {
+    const arr = [...(f[field] || Array(6).fill(""))];
+    arr[idx] = val === "" ? "" : isNaN(Number(val)) ? val : Number(val);
+    return {...f, [field]: arr};
   });
-  const setSel = (k,v) => setSelects(s=>({...s,[k]:v}));
 
-  const collect = () => {
-    const f = formRef.current;
-    const g = n => f.elements[n]?.value??"";
-    const hist = prefix => Array.from({length:6},(_,i)=>{
-      const v = f.elements[`${prefix}_${i}`]?.value;
-      return v===""||v==null?"":Number(v);
-    });
-    return {
-      ...defaults, ...selects,
-      id:g("id")||`BR-SCU-${Date.now().toString().slice(-6)}`, name:g("name"),
-      nContracts:g("nContracts"), contractEnd:g("contractEnd"),
-      lastContactLog:g("lastContactLog"), tickets90d:g("tickets90d"),
-      lastContactSSM:g("lastContactSSM"), am:g("am"),
-      observations:g("observations"), folderPath:g("folderPath"),
-      awsHistory:hist("aws"), azureHistory:hist("azure"), m365History:hist("m365"),
-      brReviews: defaults.brReviews||[],
-    };
-  };
+  const collect = () => ({
+    ...form,
+    id: form.id || `BR-SCU-${Date.now().toString().slice(-6)}`,
+  });
 
   const Inp = ({ label, field, type="text", span=1, placeholder="" }) => (
     <div style={{ gridColumn:`span ${span}` }}>
       <label style={css.label}>{label}</label>
-      <input type={type} name={field} defaultValue={defaults[field]??""} placeholder={placeholder} style={css.input}/>
+      <input type={type} value={form[field] ?? ""} placeholder={placeholder}
+        onChange={e => set(field, e.target.value)}
+        style={css.input} />
     </div>
   );
 
   const Sel = ({ label, field, options, span=1 }) => (
     <div style={{ gridColumn:`span ${span}` }}>
       <label style={css.label}>{label}</label>
-      <select value={selects[field]} onChange={e=>setSel(field,e.target.value)} style={css.select}>
+      <select value={form[field] ?? ""} onChange={e => set(field, e.target.value)} style={css.select}>
         {options.map(o=><option key={o} value={o}>{o}</option>)}
       </select>
     </div>
@@ -747,7 +748,8 @@ function ClientForm({ initial, onSave, onCancel }) {
         {MONTHS.map((m,i)=>(
           <div key={m}>
             <div style={{ fontSize:10, color:T.textSub, textAlign:"center", marginBottom:3 }}>{m}</div>
-            <input type="number" name={`${prefix}_${i}`} defaultValue={defaults[field]?.[i]??""}
+            <input type="number" value={form[field]?.[i] ?? ""}
+              onChange={e => setHist(field, i, e.target.value)}
               style={{ ...css.input, textAlign:"center", padding:"6px 4px", borderColor:`${color}60` }}/>
           </div>
         ))}
@@ -756,7 +758,7 @@ function ClientForm({ initial, onSave, onCancel }) {
   );
 
   return (
-    <form ref={formRef} onSubmit={e=>e.preventDefault()}>
+    <div>
       <FormSection title="📋 Identificação & Contrato">
         <Inp label="Nome do Cliente *" field="name" span={2}/>
         <Inp label="SCU / ID Interno" field="id"/>
@@ -796,45 +798,44 @@ function ClientForm({ initial, onSave, onCancel }) {
 
       <div style={{ background:T.card, borderRadius:12, border:`1px solid ${T.border}`, padding:20, marginBottom:14 }}>
         <div style={{ fontSize:12, fontWeight:700, color:T.text, paddingBottom:12, marginBottom:14, borderBottom:`1px solid ${T.borderLight}` }}>📁 Diretório do Cliente</div>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:12 }}>
-          <div>
-            <label style={css.label}>Caminho da Pasta (ex: /Users/perdomo/Documents/Clientes/Ascenty)</label>
-            <div style={{ display:"flex", gap:8 }}>
-              <input name="folderPath" defaultValue={defaults.folderPath??""} placeholder="/Users/perdomo/Documents/Clientes/NomeDoCliente"
-                style={{ ...css.input, fontFamily:"monospace", fontSize:12 }}/>
-              <button type="button" onClick={()=>{
-                const el = formRef.current.elements["folderPath"];
-                if(el?.value) { navigator.clipboard.writeText(el.value); }
-              }} style={{ padding:"8px 12px", borderRadius:7, background:T.btnSecBg, border:`1px solid ${T.btnSecBorder}`, fontSize:12, cursor:"pointer", whiteSpace:"nowrap", color:T.btnSecText }}>
-                📋 Copiar
-              </button>
-            </div>
-            <div style={{ fontSize:11, color:T.textSub, marginTop:4 }}>
-              Cole o caminho completo da pasta onde ficam os arquivos deste cliente. Use o Finder → clique na pasta com Command+C para copiar o caminho.
-            </div>
+        <div>
+          <label style={css.label}>Caminho da Pasta (ex: /Users/perdomo/Documents/Clientes/Ascenty)</label>
+          <div style={{ display:"flex", gap:8 }}>
+            <input value={form.folderPath ?? ""} placeholder="/Users/perdomo/Documents/Clientes/NomeDoCliente"
+              onChange={e => set("folderPath", e.target.value)}
+              style={{ ...css.input, fontFamily:"monospace", fontSize:12 }}/>
+            <button onClick={()=>{ if(form.folderPath) navigator.clipboard.writeText(form.folderPath); }}
+              style={{ padding:"8px 12px", borderRadius:7, background:T.btnSecBg, border:`1px solid ${T.btnSecBorder}`, fontSize:12, cursor:"pointer", whiteSpace:"nowrap", color:T.btnSecText }}>
+              📋 Copiar
+            </button>
+          </div>
+          <div style={{ fontSize:11, color:T.textSub, marginTop:4 }}>
+            Cole o caminho completo da pasta onde ficam os arquivos deste cliente.
           </div>
         </div>
       </div>
 
       <div style={{ background:T.card, borderRadius:12, border:`1px solid ${T.border}`, padding:20, marginBottom:20 }}>
         <label style={css.label}>🧩 Observações & Contexto</label>
-        <textarea name="observations" defaultValue={defaults.observations??""} rows={3}
+        <textarea value={form.observations ?? ""} rows={3}
+          onChange={e => set("observations", e.target.value)}
           placeholder="Notas relevantes, notícias recentes, contexto do cliente..."
           style={{ ...css.input, resize:"vertical" }}/>
       </div>
 
       <div style={{ display:"flex", gap:10 }}>
-        <button type="button" onClick={()=>{ const d=collect(); if(d.name.trim()) onSave(d); }}
+        <button onClick={()=>{ const d=collect(); if(d.name.trim()) onSave(d); }}
           style={{ padding:"10px 24px", borderRadius:8, background:"#1d4ed8", color:"#fff", border:"none", fontSize:14, fontWeight:700, cursor:"pointer" }}>
           Salvar Cliente
         </button>
-        <button type="button" onClick={onCancel} style={{ padding:"10px 18px", borderRadius:8, background:T.btnSecBg, color:T.btnSecText, border:"none", fontSize:14, cursor:"pointer" }}>
+        <button onClick={onCancel} style={{ padding:"10px 18px", borderRadius:8, background:T.btnSecBg, color:T.btnSecText, border:"none", fontSize:14, cursor:"pointer" }}>
           Cancelar
         </button>
       </div>
-    </form>
+    </div>
   );
 }
+
 
 // ─── Business Review Section ──────────────────────────────────────────────────
 const BR_TYPES = ["Online","Presencial","Híbrido","Email","Outro"];
