@@ -458,25 +458,12 @@ function Matrix({ clients }) {
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 function Dashboard({ clients, onNavigate }) {
   const T = useT();
-  const scored = useMemo(() => clients.map(c => ({
-    ...c,
-    churn: calcChurnRisk(c),
-    rescue: calcRescuePotential(c),
-  })), [clients]);
+  const scored = useMemo(() => clients.map(c => ({ ...c, churn:calcChurnRisk(c), rescue:calcRescuePotential(c) })), [clients]);
   const critical = scored.filter(c => c.churn>=70).length;
   const highRisk = scored.filter(c => c.churn>=45&&c.churn<70).length;
   const highRescue = scored.filter(c => c.rescue>=65).length;
+  const top6 = [...scored].sort((a,b)=>(b.churn+b.rescue)-(a.churn+a.rescue)).slice(0,6);
   const techDist = useMemo(() => clients.reduce((a,c)=>{a[c.tech]=(a[c.tech]||0)+1;return a;},{}), [clients]);
-  // Painel Churn: churn >= 45, sem contato SSM nos últimos 90 dias
-  const churnList = scored
-    .filter(c => c.churn >= 45 && (daysSince(c.lastContactSSM) === null || daysSince(c.lastContactSSM) > 90))
-    .sort((a,b) => b.churn - a.churn)
-    .slice(0, 8);
-  // Painel Resgate: rescue >= 40, sem contato SSM nos últimos 90 dias
-  const rescueList = scored
-    .filter(c => c.rescue >= 40 && (daysSince(c.lastContactSSM) === null || daysSince(c.lastContactSSM) > 90))
-    .sort((a,b) => b.rescue - a.rescue)
-    .slice(0, 8);
 
   const StatCard = ({ label, value, color, sub }) => (
     <div style={{ background:T.card, borderRadius:12, padding:"18px 20px", border:`1px solid ${T.border}`, borderTop:`3px solid ${color}`, flex:1, minWidth:120 }}>
@@ -495,58 +482,39 @@ function Dashboard({ clients, onNavigate }) {
         <StatCard label="Alto Potencial"    value={highRescue}     color="#7c3aed" sub="resgate ≥ 65" />
       </div>
 
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
-        {/* Painel Risco de Churn */}
+      <div style={{ display:"grid", gridTemplateColumns:"1.4fr 1fr", gap:16 }}>
+        {/* Top 6 */}
         <div style={{ background:T.card, borderRadius:12, border:`1px solid ${T.border}`, padding:20 }}>
-          <div style={{ fontSize:14, fontWeight:700, color:"#dc2626", marginBottom:4 }}>🔴 Risco de Churn</div>
-          <div style={{ fontSize:11, color:T.textMuted, marginBottom:14 }}>Churn ≥ 45 · sem contato nos últimos 90 dias</div>
+          <div style={{ fontSize:14, fontWeight:700, color:T.text, marginBottom:14 }}>🎯 Prioridade — Maiores Churn + Potencial</div>
           <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-            {churnList.map((c,i) => {
-              const cL = churnLabel(c.churn);
-              const d = daysSince(c.lastContactSSM);
-              return (
-                <div key={c.id} onClick={()=>onNavigate("detail",c)} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8, background:T.cardAlt, cursor:"pointer", border:`1px solid ${T.border}` }}>
-                  <div style={{ width:36, height:36, borderRadius:8, background:cL.bg, border:`1px solid ${cL.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:14, color:cL.color, fontFamily:"monospace", flexShrink:0 }}>{c.churn}</div>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:13, fontWeight:600, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.name}</div>
-                    <div style={{ display:"flex", gap:6, marginTop:2, alignItems:"center" }}>
-                      <TechBadge tech={c.tech}/>
-                      <span style={{ fontSize:10, color:T.textSub }}>{c.inactivityReason||"—"}</span>
-                    </div>
-                  </div>
-                  <div style={{ fontSize:10, color: d===null?"#dc2626": d>365?"#dc2626": d>180?"#ea580c":"#d97706", fontWeight:700, textAlign:"right", flexShrink:0 }}>
-                    {d===null?"sem data":`${d}d`}
-                  </div>
-                </div>
-              );
-            })}
-            {churnList.length===0 && <div style={{ fontSize:12, color:T.textSub, padding:"12px 0" }}>Nenhum cliente em risco com contato pendente.</div>}
-          </div>
-        </div>
-
-        {/* Painel Potencial de Resgate */}
-        <div style={{ background:T.card, borderRadius:12, border:`1px solid ${T.border}`, padding:20 }}>
-          <div style={{ fontSize:14, fontWeight:700, color:"#1d4ed8", marginBottom:4 }}>⭐ Potencial de Resgate</div>
-          <div style={{ fontSize:11, color:T.textMuted, marginBottom:14 }}>Resgate ≥ 40 · sem contato nos últimos 90 dias</div>
-          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-            {rescueList.map((c,i) => {
-              const rL = rescueLabel(c.rescue);
+            {top6.map((c,i) => {
+              const cL = churnLabel(c.churn), rL = rescueLabel(c.rescue);
+              const q = matrixQuadrant(c.churn, c.rescue);
               const cloudH = [...(c.azureHistory||[]),...(c.awsHistory||[])].map(Number).filter(v=>!isNaN(v)&&v>0);
               return (
-                <div key={c.id} onClick={()=>onNavigate("detail",c)} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8, background:T.cardAlt, cursor:"pointer", border:`1px solid ${T.border}` }}>
-                  <div style={{ width:36, height:36, borderRadius:8, background:rL.bg, border:`1px solid ${rL.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:14, color:rL.color, fontFamily:"monospace", flexShrink:0 }}>{c.rescue}</div>
+                <div key={c.id} onClick={()=>onNavigate("detail",c)} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8, background:i===0?"#fef2f2":T.cardAlt, cursor:"pointer", border:`1px solid ${i===0?"#fecaca":T.border}` }}>
+                  <span style={{ fontWeight:800, color:"#9ca3af", fontSize:13, width:18 }}>{i+1}</span>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:13, fontWeight:600, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.name}</div>
-                    <div style={{ display:"flex", gap:6, marginTop:2, alignItems:"center" }}>
+                    <div style={{ display:"flex", gap:6, marginTop:3, alignItems:"center" }}>
                       <TechBadge tech={c.tech}/>
-                      <span style={{ fontSize:10, color:T.textSub }}>{c.category}</span>
+                      <span style={{ fontSize:10, color:q.color, fontWeight:700, background:q.bg, borderRadius:4, padding:"1px 5px" }}>{q.label}</span>
                     </div>
                   </div>
-                  <Sparkline data={cloudH.length?cloudH:(c.m365History||[])} color={cloudH.length?"#3b82f6":"#f43f5e"}/>
+                  <Sparkline data={cloudH.length?cloudH:c.m365History} color={cloudH.length?"#3b82f6":"#f43f5e"}/>
+                  <div style={{ display:"flex", gap:4 }}>
+                    <div style={{ textAlign:"center", background:"#fef2f2", borderRadius:6, padding:"3px 6px" }}>
+                      <div style={{ fontSize:9, color:"#9ca3af", textTransform:"uppercase" }}>Churn</div>
+                      <div style={{ fontSize:15, fontWeight:900, color:cL.color, fontFamily:"monospace" }}>{c.churn}</div>
+                    </div>
+                    <div style={{ textAlign:"center", background:"#eff6ff", borderRadius:6, padding:"3px 6px" }}>
+                      <div style={{ fontSize:9, color:"#9ca3af", textTransform:"uppercase" }}>Resgate</div>
+                      <div style={{ fontSize:15, fontWeight:900, color:rL.color, fontFamily:"monospace" }}>{c.rescue}</div>
+                    </div>
+                  </div>
                 </div>
               );
             })}
-            {rescueList.length===0 && <div style={{ fontSize:12, color:T.textSub, padding:"12px 0" }}>Nenhum cliente com alto potencial de resgate pendente.</div>}
           </div>
         </div>
 
@@ -598,39 +566,80 @@ function ClientList({ clients, onSelect, onAdd, onImport, importing }) {
   const [search, setSearch] = useState("");
   const [filterTech, setFilterTech] = useState("Todos");
   const [filterQ, setFilterQ] = useState("Todos");
+  const [filterChurn, setFilterChurn] = useState("Todos");
+  const [filterRescue, setFilterRescue] = useState("Todos");
+  const [filterContato, setFilterContato] = useState("Todos");
   const [sort, setSort] = useState("churn_desc");
   const fileRef = useRef();
 
   const techs = ["Todos",...new Set(clients.map(c=>c.tech))];
   const qFilters = ["Todos","Resgatar Agora","Monitorar","Expandir","Arquivar"];
+  const churnFilters = ["Todos","Crítico (≥70)","Alto (45–69)","Médio (25–44)","Baixo (<25)"];
+  const rescueFilters = ["Todos","Alto (≥65)","Médio (40–64)","Baixo (20–39)","Mínimo (<20)"];
+  const contatoFilters = ["Todos","Sem registro","Mais de 2 anos","1–2 anos","6–12 meses","Últimos 6 meses"];
 
   const processed = useMemo(() => {
     let list = clients.map(c=>({ ...c, churn:calcChurnRisk(c), rescue:calcRescuePotential(c) }));
     list = list.map(c=>({ ...c, quadrant:matrixQuadrant(c.churn,c.rescue).label }));
+
     if (search) list = list.filter(c=>c.name.toLowerCase().includes(search.toLowerCase())||(c.id||"").toLowerCase().includes(search.toLowerCase()));
     if (filterTech!=="Todos") list = list.filter(c=>c.tech===filterTech);
     if (filterQ!=="Todos") list = list.filter(c=>c.quadrant.includes(filterQ.split(" ").pop()));
-    if (sort==="churn_desc")  list.sort((a,b)=>b.churn-a.churn);
+
+    if (filterChurn!=="Todos") list = list.filter(c=>{
+      if (filterChurn==="Crítico (≥70)")  return c.churn>=70;
+      if (filterChurn==="Alto (45–69)")   return c.churn>=45&&c.churn<70;
+      if (filterChurn==="Médio (25–44)")  return c.churn>=25&&c.churn<45;
+      if (filterChurn==="Baixo (<25)")    return c.churn<25;
+      return true;
+    });
+
+    if (filterRescue!=="Todos") list = list.filter(c=>{
+      if (filterRescue==="Alto (≥65)")    return c.rescue>=65;
+      if (filterRescue==="Médio (40–64)") return c.rescue>=40&&c.rescue<65;
+      if (filterRescue==="Baixo (20–39)") return c.rescue>=20&&c.rescue<40;
+      if (filterRescue==="Mínimo (<20)")  return c.rescue<20;
+      return true;
+    });
+
+    if (filterContato!=="Todos") list = list.filter(c=>{
+      const d = daysSince(c.lastContactSSM);
+      if (filterContato==="Sem registro")     return d===null;
+      if (filterContato==="Mais de 2 anos")   return d!==null&&d>730;
+      if (filterContato==="1–2 anos")         return d!==null&&d>365&&d<=730;
+      if (filterContato==="6–12 meses")       return d!==null&&d>180&&d<=365;
+      if (filterContato==="Últimos 6 meses")  return d!==null&&d<=180;
+      return true;
+    });
+
+    if (sort==="churn_desc")   list.sort((a,b)=>b.churn-a.churn);
     else if (sort==="rescue_desc") list.sort((a,b)=>b.rescue-a.rescue);
-    else if (sort==="name")   list.sort((a,b)=>a.name.localeCompare(b.name));
+    else if (sort==="name")    list.sort((a,b)=>a.name.localeCompare(b.name));
+    else if (sort==="contato_asc") list.sort((a,b)=>{
+      const da=daysSince(a.lastContactSSM), db=daysSince(b.lastContactSSM);
+      if(da===null&&db===null) return 0;
+      if(da===null) return -1;
+      if(db===null) return 1;
+      return db-da;
+    });
     return list;
-  }, [clients,search,filterTech,filterQ,sort]);
+  }, [clients,search,filterTech,filterQ,filterChurn,filterRescue,filterContato,sort]);
+
+  const hasFilters = filterTech!=="Todos"||filterQ!=="Todos"||filterChurn!=="Todos"||filterRescue!=="Todos"||filterContato!=="Todos"||search;
+  const clearAll = ()=>{ setSearch(""); setFilterTech("Todos"); setFilterQ("Todos"); setFilterChurn("Todos"); setFilterRescue("Todos"); setFilterContato("Todos"); };
+
+  const selStyle = { ...css.select, width:"auto", padding:"7px 10px" };
 
   return (
     <div>
-      <div style={{ display:"flex", gap:8, marginBottom:14, flexWrap:"wrap", alignItems:"center" }}>
+      {/* Linha 1: busca + botões */}
+      <div style={{ display:"flex", gap:8, marginBottom:8, flexWrap:"wrap", alignItems:"center" }}>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Buscar por nome ou SCU…" style={{ ...css.input, width:230 }}/>
-        <select value={filterTech} onChange={e=>setFilterTech(e.target.value)} style={{ ...css.select, width:"auto", padding:"8px 10px" }}>
-          {techs.map(t=><option key={t}>{t}</option>)}
-        </select>
-        <select value={filterQ} onChange={e=>setFilterQ(e.target.value)} style={{ ...css.select, width:"auto", padding:"8px 10px" }}>
-          {qFilters.map(q=><option key={q}>{q}</option>)}
-        </select>
-        <select value={sort} onChange={e=>setSort(e.target.value)} style={{ ...css.select, width:"auto", padding:"8px 10px" }}>
-          <option value="churn_desc">Churn ↓</option>
-          <option value="rescue_desc">Potencial ↓</option>
-          <option value="name">Nome A–Z</option>
-        </select>
+        {hasFilters&&(
+          <button onClick={clearAll} style={{ padding:"7px 12px", borderRadius:7, background:"#fef2f2", color:"#dc2626", border:"1px solid #fecaca", fontSize:12, fontWeight:600, cursor:"pointer" }}>
+            ✕ Limpar filtros
+          </button>
+        )}
         <div style={{ marginLeft:"auto", display:"flex", gap:8 }}>
           <input ref={fileRef} type="file" accept=".xlsx" style={{ display:"none" }} onChange={e=>e.target.files[0]&&onImport(e.target.files[0])}/>
           <button onClick={()=>fileRef.current.click()} disabled={importing} style={{ padding:"8px 16px", borderRadius:8, background:"#f0fdf4", color:"#16a34a", border:"1px solid #bbf7d0", fontSize:13, fontWeight:600, cursor:"pointer" }}>
@@ -641,7 +650,43 @@ function ClientList({ clients, onSelect, onAdd, onImport, importing }) {
           </button>
         </div>
       </div>
-      <div style={{ fontSize:12, color:T.textMuted, marginBottom:8 }}>{processed.length} clientes</div>
+
+      {/* Linha 2: filtros */}
+      <div style={{ display:"flex", gap:8, marginBottom:12, flexWrap:"wrap", alignItems:"center" }}>
+        <span style={{ fontSize:11, color:T.textSub, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>Filtrar:</span>
+        <select value={filterTech} onChange={e=>setFilterTech(e.target.value)} style={selStyle}>
+          <option value="Todos">☁️ Tecnologia</option>
+          {techs.filter(t=>t!=="Todos").map(t=><option key={t} value={t}>{t}</option>)}
+        </select>
+        <select value={filterQ} onChange={e=>setFilterQ(e.target.value)} style={selStyle}>
+          <option value="Todos">📊 Quadrante</option>
+          {qFilters.filter(q=>q!=="Todos").map(q=><option key={q} value={q}>{q}</option>)}
+        </select>
+        <select value={filterChurn} onChange={e=>setFilterChurn(e.target.value)} style={{ ...selStyle, borderColor: filterChurn!=="Todos"?"#dc2626":undefined }}>
+          <option value="Todos">🔴 Risco Churn</option>
+          {churnFilters.filter(f=>f!=="Todos").map(f=><option key={f} value={f}>{f}</option>)}
+        </select>
+        <select value={filterRescue} onChange={e=>setFilterRescue(e.target.value)} style={{ ...selStyle, borderColor: filterRescue!=="Todos"?"#1d4ed8":undefined }}>
+          <option value="Todos">⭐ Pot. Resgate</option>
+          {rescueFilters.filter(f=>f!=="Todos").map(f=><option key={f} value={f}>{f}</option>)}
+        </select>
+        <select value={filterContato} onChange={e=>setFilterContato(e.target.value)} style={{ ...selStyle, borderColor: filterContato!=="Todos"?"#7c3aed":undefined }}>
+          <option value="Todos">📅 Último Contato</option>
+          {contatoFilters.filter(f=>f!=="Todos").map(f=><option key={f} value={f}>{f}</option>)}
+        </select>
+        <span style={{ fontSize:11, color:T.textSub, marginLeft:4 }}>Ordenar:</span>
+        <select value={sort} onChange={e=>setSort(e.target.value)} style={selStyle}>
+          <option value="churn_desc">Churn ↓</option>
+          <option value="rescue_desc">Potencial ↓</option>
+          <option value="name">Nome A–Z</option>
+          <option value="contato_asc">Sem contato há mais tempo</option>
+        </select>
+      </div>
+
+      <div style={{ fontSize:12, color:T.textMuted, marginBottom:8 }}>
+        {processed.length} cliente{processed.length!==1?"s":""}{hasFilters?` (de ${clients.length} total)`:""} 
+      </div>
+
       <div style={{ background:T.card, borderRadius:12, border:`1px solid ${T.border}`, padding:0, overflow:"hidden" }}>
         <table style={{ width:"100%", borderCollapse:"collapse" }}>
           <thead>
@@ -655,6 +700,7 @@ function ClientList({ clients, onSelect, onAdd, onImport, importing }) {
             {processed.map(c=>{
               const cL=churnLabel(c.churn), rL=rescueLabel(c.rescue), q=matrixQuadrant(c.churn,c.rescue);
               const cloudH=[...(c.azureHistory||[]),...(c.awsHistory||[])].map(Number).filter(v=>!isNaN(v)&&v>0);
+              const d=daysSince(c.lastContactSSM);
               return (
                 <tr key={c.id} onClick={()=>onSelect(c)} style={{ cursor:"pointer", borderBottom:`1px solid ${T.borderLight}` }}
                   onMouseEnter={e=>e.currentTarget.style.background=T.tableHover}
@@ -681,17 +727,19 @@ function ClientList({ clients, onSelect, onAdd, onImport, importing }) {
                     <span style={{ fontSize:11, fontWeight:700, color:q.color, background:q.bg, borderRadius:6, padding:"2px 8px", whiteSpace:"nowrap" }}>{q.label}</span>
                   </td>
                   <td style={{ padding:"11px 12px" }}>
-                    <Sparkline data={cloudH.length?cloudH:c.m365History} color={cloudH.length?"#3b82f6":"#f43f5e"}/>
+                    <Sparkline data={cloudH.length?cloudH:(c.m365History||[])} color={cloudH.length?"#3b82f6":"#f43f5e"}/>
                   </td>
                   <td style={{ padding:"11px 12px" }}>
-                    <span style={{ fontSize:12, color:T.text }}>{c.lastContactSSM||c.lastContactLog||"—"}</span>
+                    <div style={{ fontSize:12, color:T.text }}>{c.lastContactSSM||c.lastContactLog||"—"}</div>
+                    {d!==null&&<div style={{ fontSize:10, color:d>730?"#dc2626":d>365?"#ea580c":d>180?"#d97706":T.textSub, fontWeight:600 }}>{d}d atrás</div>}
+                    {d===null&&(c.lastContactSSM||c.lastContactLog)===undefined&&<div style={{ fontSize:10, color:"#dc2626", fontWeight:600 }}>Sem registro</div>}
                   </td>
                 </tr>
               );
             })}
             {processed.length===0&&(
               <tr><td colSpan={8} style={{ padding:40, textAlign:"center", color:T.textSub, fontSize:14, background:T.card }}>
-                {clients.length===0?"Nenhum cliente cadastrado. Importe o Excel ou adicione manualmente.":"Nenhum resultado."}
+                {clients.length===0?"Nenhum cliente cadastrado. Importe o Excel ou adicione manualmente.":"Nenhum resultado para os filtros selecionados."}
               </td></tr>
             )}
           </tbody>
