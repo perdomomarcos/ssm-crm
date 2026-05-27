@@ -65,7 +65,7 @@ function toDB(c) {
     br_reviews:c.brReviews||[],
     contacts: c.contacts||[],
   };
-
+}
 function fromDB(r) {
   return {
     id:r.id, name:r.name, tech:r.tech||"Desconhecido", nContracts:r.n_contracts||"1",
