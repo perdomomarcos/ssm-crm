@@ -63,8 +63,8 @@ function toDB(c) {
     azure_history: Array.isArray(c.azureHistory) ? migrateHistory(c.azureHistory) : (c.azureHistory||{}),
     m365_history: Array.isArray(c.m365History) ? migrateHistory(c.m365History) : (c.m365History||{}),
     br_reviews:c.brReviews||[],
-    contacts: c.contacts||[],
   };
+}
 
 function fromDB(r) {
   return {
@@ -80,7 +80,6 @@ function fromDB(r) {
     azureHistory: migrateHistory(r.azure_history),
     m365History:  migrateHistory(r.m365_history),
     brReviews:r.br_reviews||[],
-    contacts: r.contacts||[],
   };
 }
 
@@ -534,7 +533,7 @@ function Dashboard({ clients, onNavigate }) {
                       <span style={{ fontSize:10, color:q.color, fontWeight:700, background:q.bg, borderRadius:4, padding:"1px 5px" }}>{q.label}</span>
                     </div>
                   </div>
-                  <Sparkline data={cloudH.length?cloudH:histValues(c.m365History)} color={cloudH.length?"#3b82f6":"#f43f5e"}/>
+                  <Sparkline data={cloudH.length?cloudH:c.m365History} color={cloudH.length?"#3b82f6":"#f43f5e"}/>
                   <div style={{ display:"flex", gap:4 }}>
                     <div style={{ textAlign:"center", background:"#fef2f2", borderRadius:6, padding:"3px 6px" }}>
                       <div style={{ fontSize:9, color:"#9ca3af", textTransform:"uppercase" }}>Churn</div>
@@ -689,7 +688,7 @@ function ClientList({ clients, onSelect, onAdd, onImport, importing }) {
                     <span style={{ fontSize:11, fontWeight:700, color:q.color, background:q.bg, borderRadius:6, padding:"2px 8px", whiteSpace:"nowrap" }}>{q.label}</span>
                   </td>
                   <td style={{ padding:"11px 12px" }}>
-                    <Sparkline data={cloudH.length?cloudH:histValues(c.m365History)} color={cloudH.length?"#3b82f6":"#f43f5e"}/>
+                    <Sparkline data={cloudH.length?cloudH:c.m365History} color={cloudH.length?"#3b82f6":"#f43f5e"}/>
                   </td>
                   <td style={{ padding:"11px 12px" }}>
                     <span style={{ fontSize:12, color:T.text }}>{c.lastContactSSM||c.lastContactLog||"—"}</span>
@@ -823,7 +822,6 @@ function ClientForm({ initial, onSave, onCancel }) {
     folderPath: initial?.folderPath || "",
     brFrequency: initial?.brFrequency || "Trimestral",
     brReviews: initial?.brReviews || [],
-    contacts: initial?.contacts || [],
   }));
 
   const set = useCallback((field, val) =>
@@ -908,54 +906,6 @@ function ClientForm({ initial, onSave, onCancel }) {
           onChange={e => set("observations", e.target.value)}
           placeholder="Notas relevantes, notícias recentes, contexto do cliente..."
           style={{ ...css.input, resize:"vertical" }}/>
-      </div>
-
-      {/* Contatos */}
-      <div style={{ background:T.card, borderRadius:12, border:`1px solid ${T.border}`, padding:20, marginBottom:20 }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14, paddingBottom:10, borderBottom:`1px solid ${T.borderLight}` }}>
-          <div style={{ fontSize:12, fontWeight:700, color:T.text }}>👤 Contatos do Cliente</div>
-          <button onClick={() => set("contacts", [...(form.contacts||[]), { id:Date.now(), name:"", role:"", email:"", phone:"" }])}
-            style={{ padding:"5px 12px", borderRadius:7, background:"#1d4ed8", color:"#fff", border:"none", fontSize:12, fontWeight:600, cursor:"pointer" }}>
-            + Adicionar Contato
-          </button>
-        </div>
-        {(!form.contacts || form.contacts.length === 0) && (
-          <div style={{ fontSize:12, color:T.textSub, textAlign:"center", padding:"12px 0" }}>Nenhum contato adicionado ainda.</div>
-        )}
-        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-          {(form.contacts||[]).map((ct, idx) => (
-            <div key={ct.id} style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr auto", gap:8, alignItems:"end", background:T.cardAlt, borderRadius:8, padding:"10px 12px", border:`1px solid ${T.borderLight}` }}>
-              <div>
-                <label style={css.label}>Nome</label>
-                <input value={ct.name} placeholder="João Silva"
-                  onChange={e => { const c=[...form.contacts]; c[idx]={...c[idx],name:e.target.value}; set("contacts",c); }}
-                  style={css.input}/>
-              </div>
-              <div>
-                <label style={css.label}>Cargo</label>
-                <input value={ct.role} placeholder="CTO"
-                  onChange={e => { const c=[...form.contacts]; c[idx]={...c[idx],role:e.target.value}; set("contacts",c); }}
-                  style={css.input}/>
-              </div>
-              <div>
-                <label style={css.label}>E-mail</label>
-                <input value={ct.email} placeholder="joao@empresa.com.br" type="email"
-                  onChange={e => { const c=[...form.contacts]; c[idx]={...c[idx],email:e.target.value}; set("contacts",c); }}
-                  style={css.input}/>
-              </div>
-              <div>
-                <label style={css.label}>Telefone</label>
-                <input value={ct.phone} placeholder="(11) 99999-9999"
-                  onChange={e => { const c=[...form.contacts]; c[idx]={...c[idx],phone:e.target.value}; set("contacts",c); }}
-                  style={css.input}/>
-              </div>
-              <button onClick={() => set("contacts", form.contacts.filter((_,i)=>i!==idx))}
-                style={{ background:"none", border:"none", color:"#d1d5db", cursor:"pointer", fontSize:18, padding:"0 4px", marginBottom:2 }}
-                onMouseEnter={e=>e.target.style.color="#ef4444"}
-                onMouseLeave={e=>e.target.style.color="#d1d5db"}>×</button>
-            </div>
-          ))}
-        </div>
       </div>
 
       <div style={{ display:"flex", gap:10 }}>
@@ -1244,7 +1194,7 @@ function ClientDetail({ client, onSave, onBack, onDelete }) {
           <HistViz label="AWS — Valor mensal" data={client.awsHistory} color="#f97316"/>
           <HistViz label="Azure — Valor mensal" data={client.azureHistory} color="#3b82f6"/>
           <HistViz label="M365-CSP — Licenças ativas" data={client.m365History} color="#f43f5e"/>
-          {!cloudH.length&&!histValues(client.m365History).some(v=>v>0)&&(
+          {!cloudH.length&&!(client.m365History||[]).some(v=>v>0)&&(
             <div style={{ fontSize:13, color:T.textSub }}>Nenhum histórico de consumo cadastrado.</div>
           )}
         </div>
@@ -1252,41 +1202,6 @@ function ClientDetail({ client, onSave, onBack, onDelete }) {
 
       {/* Business Reviews */}
       <BRSection client={client} onSave={onSave}/>
-
-      {/* Contatos */}
-      {(client.contacts||[]).length > 0 && (
-        <div style={{ background:T.card, borderRadius:12, border:`1px solid ${T.border}`, padding:20, marginBottom:14 }}>
-          <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:14, paddingBottom:8, borderBottom:`1px solid ${T.borderLight}` }}>👤 Contatos do Cliente</div>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(260px, 1fr))", gap:10 }}>
-            {client.contacts.map(ct => (
-              <div key={ct.id} style={{ background:T.cardAlt, border:`1px solid ${T.borderLight}`, borderRadius:10, padding:"12px 14px" }}>
-                <div style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:2 }}>{ct.name||"—"}</div>
-                <div style={{ fontSize:11, color:T.textMuted, marginBottom:8 }}>{ct.role||"—"}</div>
-                <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
-                  {ct.email && (
-                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                      <span style={{ fontSize:11, color:T.textSub }}>✉️</span>
-                      <span style={{ fontSize:12, color:T.text, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{ct.email}</span>
-                      <button onClick={()=>navigator.clipboard.writeText(ct.email)}
-                        title="Copiar e-mail"
-                        style={{ background:"none", border:"none", cursor:"pointer", fontSize:11, color:T.textSub, padding:"0 2px", flexShrink:0 }}>📋</button>
-                    </div>
-                  )}
-                  {ct.phone && (
-                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                      <span style={{ fontSize:11, color:T.textSub }}>📱</span>
-                      <span style={{ fontSize:12, color:T.text, flex:1 }}>{ct.phone}</span>
-                      <button onClick={()=>navigator.clipboard.writeText(ct.phone)}
-                        title="Copiar telefone"
-                        style={{ background:"none", border:"none", cursor:"pointer", fontSize:11, color:T.textSub, padding:"0 2px", flexShrink:0 }}>📋</button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Folder + Observations */}
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
@@ -1474,4 +1389,3 @@ export default function App() {
     </ThemeCtx.Provider>
   );
 }
-
