@@ -1400,8 +1400,80 @@ function ClientDetail({ client, onSave, onBack, onDelete }) {
   );
 }
 
+// ─── Login ────────────────────────────────────────────────────────────────────
+const APP_PASSWORD = "ssm2026!";
+const SESSION_KEY  = "ssm_auth";
+
+function LoginScreen({ onAuth }) {
+  const [pwd, setPwd]     = useState("");
+  const [error, setError] = useState(false);
+  const [shake, setShake] = useState(false);
+
+  const attempt = () => {
+    if (pwd === APP_PASSWORD) {
+      sessionStorage.setItem(SESSION_KEY, "1");
+      onAuth();
+    } else {
+      setError(true);
+      setShake(true);
+      setPwd("");
+      setTimeout(() => setShake(false), 500);
+    }
+  };
+
+  return (
+    <div style={{ minHeight:"100vh", background:"#0f172a", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans','Segoe UI',sans-serif" }}>
+      <style>{`@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}`}</style>
+      <div style={{ width:340, animation: shake ? "shake 0.45s ease" : "none" }}>
+        {/* Logo */}
+        <div style={{ textAlign:"center", marginBottom:32 }}>
+          <div style={{ fontSize:32, marginBottom:8 }}>📊</div>
+          <div style={{ fontSize:22, fontWeight:800, color:"#f8fafc", letterSpacing:"-0.02em" }}>SSM CRM</div>
+          <div style={{ fontSize:12, color:"#475569", marginTop:4 }}>Portfolio Intelligence</div>
+        </div>
+
+        {/* Card */}
+        <div style={{ background:"#1e293b", borderRadius:16, padding:28, border:"1px solid #334155" }}>
+          <div style={{ fontSize:14, fontWeight:600, color:"#94a3b8", marginBottom:18, textAlign:"center" }}>
+            Acesso restrito
+          </div>
+          <div style={{ marginBottom:16 }}>
+            <label style={{ fontSize:11, fontWeight:600, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.05em", display:"block", marginBottom:6 }}>
+              Senha
+            </label>
+            <input
+              type="password"
+              value={pwd}
+              autoFocus
+              placeholder="••••••••"
+              onChange={e => { setPwd(e.target.value); setError(false); }}
+              onKeyDown={e => e.key === "Enter" && attempt()}
+              style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:`1px solid ${error ? "#ef4444" : "#475569"}`, background:"#0f172a", color:"#f1f5f9", fontSize:14, fontFamily:"inherit", boxSizing:"border-box", outline:"none", transition:"border-color 0.2s" }}
+            />
+            {error && (
+              <div style={{ fontSize:11, color:"#ef4444", marginTop:6, fontWeight:600 }}>
+                Senha incorreta. Tente novamente.
+              </div>
+            )}
+          </div>
+          <button
+            onClick={attempt}
+            style={{ width:"100%", padding:"11px", borderRadius:8, background:"#1d4ed8", color:"#fff", border:"none", fontSize:14, fontWeight:700, cursor:"pointer", letterSpacing:"0.01em" }}>
+            Entrar →
+          </button>
+        </div>
+
+        <div style={{ textAlign:"center", marginTop:20, fontSize:11, color:"#334155" }}>
+          SoftwareOne · Customer Success
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
+  const [authed, setAuthed] = useState(() => sessionStorage.getItem(SESSION_KEY) === "1");
   const [clients, setClients] = useState(loadClients());
   const [view, setView] = useState("dashboard");
   const [selected, setSelected] = useState(null);
@@ -1410,6 +1482,8 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [dark, setDark] = useState(() => localStorage.getItem("ssm_dark")==="1");
   const T = dark ? DARK : LIGHT;
+
+  if (!authed) return <LoginScreen onAuth={() => setAuthed(true)} />;
 
   useEffect(() => { localStorage.setItem("ssm_dark", dark?"1":"0"); }, [dark]);
 
