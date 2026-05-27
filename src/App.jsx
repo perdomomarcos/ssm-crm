@@ -195,7 +195,7 @@ function calcChurnRisk(c) {
 
   const cloudAll = [...(c.awsHistory||[]),...(c.azureHistory||[])].map(Number).filter(v=>!isNaN(v)&&v>=0);
   const m365 = (c.m365History||[]).map(Number).filter(v=>!isNaN(v)&&v>=0);
-  const trend = calcTrend(cloudAll.length ? [...(c.awsHistory||[]),...(c.azureHistory||[])] : c.m365History);
+  const trend = calcTrend(cloudAll.length ? [...(c.awsHistory||[]),...(c.azureHistory||[])] : (c.m365History||[]));
 
   // Consumo caindo = risco alto
   if (trend === "zerado")        score += 35;
@@ -242,7 +242,7 @@ function calcRescuePotential(c) {
 
   const cloudAll = [...(c.awsHistory||[]),...(c.azureHistory||[])].map(Number).filter(v=>!isNaN(v)&&v>0);
   const m365 = (c.m365History||[]).map(Number).filter(v=>!isNaN(v)&&v>0);
-  const trend = calcTrend(cloudAll.length ? [...(c.awsHistory||[]),...(c.azureHistory||[])] : c.m365History);
+  const trend = calcTrend(cloudAll.length ? [...(c.awsHistory||[]),...(c.azureHistory||[])] : (c.m365History||[]));
 
   // Porte estimado pelo pico de consumo
   const peak = cloudAll.length ? Math.max(...cloudAll) : 0;
@@ -491,7 +491,7 @@ function RescueRow({ c, i, onNavigate }) {
   const T = useT();
   const rL = rescueLabel(c.rescue);
   const cL = churnLabel(c.churn);
-  const cloudH = [...(c.azureHistory||[]),...(c.awsHistory||[])].map(Number).filter(v=>!isNaN(v)&&v>0);
+  const cloudH = [...(Array.isArray(c.azureHistory)?c.azureHistory:[]),...(Array.isArray(c.awsHistory)?c.awsHistory:[])].map(Number).filter(v=>!isNaN(v)&&v>0);
   return (
     <div onClick={() => onNavigate("detail", c)}
       style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8,
@@ -521,10 +521,14 @@ function RescueRow({ c, i, onNavigate }) {
 function Dashboard({ clients, onNavigate }) {
   const T = useT();
 
-  const scored = useMemo(() => clients.map(c => {
+  const scored = useMemo(() => (Array.isArray(clients) ? clients : []).map(c => {
     const d = daysSince(c.lastContactSSM);
     return {
       ...c,
+      awsHistory:   Array.isArray(c.awsHistory)   ? c.awsHistory   : [],
+      azureHistory: Array.isArray(c.azureHistory)  ? c.azureHistory  : [],
+      m365History:  Array.isArray(c.m365History)   ? c.m365History   : [],
+      brReviews:    Array.isArray(c.brReviews)     ? c.brReviews     : [],
       churn: calcChurnRisk(c),
       rescue: calcRescuePotential(c),
       recentContact: d !== null && d <= 90,
@@ -532,11 +536,11 @@ function Dashboard({ clients, onNavigate }) {
   }), [clients]);
 
   const churnList = useMemo(() =>
-    [...scored].filter(c => c.churn >= 45 && !c.recentContact).sort((a,b) => b.churn - a.churn),
+    scored.filter(c => c.churn >= 45 && !c.recentContact).sort((a,b) => b.churn - a.churn),
   [scored]);
 
   const rescueList = useMemo(() =>
-    [...scored].filter(c => c.rescue >= 40 && !c.recentContact).sort((a,b) => b.rescue - a.rescue),
+    scored.filter(c => c.rescue >= 40 && !c.recentContact).sort((a,b) => b.rescue - a.rescue),
   [scored]);
 
   const critical   = scored.filter(c => c.churn >= 70).length;
