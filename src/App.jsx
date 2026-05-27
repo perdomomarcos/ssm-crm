@@ -189,6 +189,42 @@ function calcExpectedBRs(freq) {
   return null;
 }
 
+// ─── SPRINT 1: calcNextBR ─────────────────────────────────────────────────────
+// Retorna o status do próximo BR esperado com base no último registrado.
+// TESTÁVEL: cliente Trimestral com último BR há 95 dias → status "overdue", daysUntil: -5
+function calcNextBR(client) {
+  const intervalDays = {
+    Mensal: 30, Bimestral: 60, Trimestral: 90,
+    Semestral: 180, Anual: 365,
+  }[client.brFrequency];
+
+  if (!intervalDays) return { status: "no_frequency", daysUntil: null, nextExpected: null, lastBR: null };
+
+  const brList = client.brReviews || [];
+  if (brList.length === 0) return { status: "never", daysUntil: null, nextExpected: null, lastBR: null };
+
+  const dates = brList.map(br => parseDate(br.date)).filter(Boolean);
+  if (!dates.length) return { status: "never", daysUntil: null, nextExpected: null, lastBR: null };
+
+  const lastBR = new Date(Math.max(...dates.map(d => d.getTime())));
+  const nextExpected = new Date(lastBR.getTime() + intervalDays * 86400000);
+  const daysUntil = Math.ceil((nextExpected.getTime() - Date.now()) / 86400000);
+
+  let status;
+  if (daysUntil < 0)        status = "overdue";
+  else if (daysUntil <= 14) status = "soon";
+  else                       status = "ok";
+
+  return { status, daysUntil, nextExpected, lastBR };
+}
+
+function brAlertLabel(status, daysUntil) {
+  if (status === "overdue") return { text: `Atrasado ${Math.abs(daysUntil)}d`, color: "#dc2626", bg: "#fef2f2", border: "#fecaca", emoji: "🔴" };
+  if (status === "soon")    return { text: `Em ${daysUntil}d`, color: "#d97706", bg: "#fffbeb", border: "#fde68a", emoji: "🟡" };
+  if (status === "never")   return { text: "Nunca realizado", color: "#dc2626", bg: "#fef2f2", border: "#fecaca", emoji: "🔴" };
+  return null; // ok e no_frequency não aparecem como alerta
+}
+
 function calcChurnRisk(c) {
   // Score 0-100: quanto maior, maior risco de churn
   let score = 0;
@@ -493,6 +529,57 @@ function Dashboard({ clients, onNavigate }) {
         <StatCard label="Alto Potencial"    value={highRescue}     color="#7c3aed" sub="resgate ≥ 65" />
       </div>
 
+      {/* SPRINT 1: Painel de Alertas de BR */}
+      {(() => {
+        const brAlerts = clients
+          .map(c => ({ ...c, br: calcNextBR(c), churn: calcChurnRisk(c) }))
+          .filter(c => c.br.status === "overdue" || c.br.status === "soon" || c.br.status === "never")
+          .sort((a, b) => {
+            // Ordenar: overdue/never primeiro, depois por churn score
+            const priority = s => s === "overdue" || s === "never" ? 0 : 1;
+            const p = priority(a.br.status) - priority(b.br.status);
+            if (p !== 0) return p;
+            return b.churn - a.churn;
+          })
+          .slice(0, 6);
+
+        if (brAlerts.length === 0) return null;
+
+        return (
+          <div style={{ background: T.card, borderRadius: 12, border: "1px solid #fde68a", borderLeft: "4px solid #f59e0b", padding: 20, marginBottom: 4 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#92400e" }}>📅 Lembretes de Business Review</div>
+                <div style={{ fontSize: 11, color: "#a16207", marginTop: 2 }}>Clientes com BR atrasado ou vencendo em 14 dias</div>
+              </div>
+              <span style={{ fontSize: 12, fontWeight: 700, background: "#fef3c7", color: "#92400e", borderRadius: 6, padding: "3px 10px", border: "1px solid #fde68a" }}>
+                {brAlerts.length} alerta{brAlerts.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+              {brAlerts.map(c => {
+                const aL = brAlertLabel(c.br.status, c.br.daysUntil);
+                const cL = churnLabel(c.churn);
+                return (
+                  <div key={c.id} onClick={() => onNavigate("detail", c)}
+                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, background: aL.bg, border: `1px solid ${aL.border}`, cursor: "pointer" }}>
+                    <span style={{ fontSize: 18, flexShrink: 0 }}>{aL.emoji}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name.split(" ").slice(0, 2).join(" ")}</div>
+                      <div style={{ fontSize: 11, color: aL.color, fontWeight: 600, marginTop: 1 }}>{aL.text}</div>
+                      <div style={{ fontSize: 10, color: T.textSub }}>{c.brFrequency || "—"}</div>
+                    </div>
+                    <div style={{ fontSize: 10, background: cL.bg, color: cL.color, border: `1px solid ${cL.border}`, borderRadius: 4, padding: "2px 5px", fontWeight: 700, flexShrink: 0 }}>
+                      C:{c.churn}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
         {/* Painel Risco de Churn */}
         <div style={{ background:T.card, borderRadius:12, border:`1px solid ${T.border}`, padding:20 }}>
@@ -710,7 +797,7 @@ function ClientList({ clients, onSelect, onAdd, onImport, importing }) {
         <table style={{ width:"100%", borderCollapse:"collapse" }}>
           <thead>
             <tr style={{ background:T.tableHead }}>
-              {["Cliente","SCU","Tecnologia","Risco Churn","Pot. Resgate","Quadrante","Consumo (6m)","Último Contato"].map(h=>(
+              {["Cliente","SCU","Tecnologia","Risco Churn","Pot. Resgate","Quadrante","Consumo (6m)","Último Contato","Próximo BR"].map(h=>(
                 <th key={h} style={{ padding:"10px 12px", textAlign:"left", fontSize:11, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.05em", borderBottom:`1px solid ${T.border}`, whiteSpace:"nowrap" }}>{h}</th>
               ))}
             </tr>
@@ -751,6 +838,19 @@ function ClientList({ clients, onSelect, onAdd, onImport, importing }) {
                   <td style={{ padding:"11px 12px" }}>
                     <div style={{ fontSize:12, color:T.text }}>{c.lastContactSSM||c.lastContactLog||"—"}</div>
                     {d!==null&&<div style={{ fontSize:10, color:d>730?"#dc2626":d>365?"#ea580c":d>180?"#d97706":T.textSub, fontWeight:600 }}>{d}d atrás</div>}
+                  </td>
+                  {/* SPRINT 1: coluna Próximo BR */}
+                  <td style={{ padding:"11px 12px" }}>
+                    {(() => {
+                      const br = calcNextBR(c);
+                      const aL = brAlertLabel(br.status, br.daysUntil);
+                      if (!aL) return <span style={{ fontSize:11, color:T.textSub }}>—</span>;
+                      return (
+                        <span style={{ fontSize:11, fontWeight:700, color:aL.color, background:aL.bg, border:`1px solid ${aL.border}`, borderRadius:6, padding:"2px 8px", whiteSpace:"nowrap" }}>
+                          {aL.emoji} {aL.text}
+                        </span>
+                      );
+                    })()}
                   </td>
                 </tr>
               );
@@ -990,6 +1090,56 @@ function BRSection({ client, onSave }) {
           {showForm ? "Cancelar" : "+ Registrar BR"}
         </button>
       </div>
+
+      {/* SPRINT 1: Countdown do próximo BR esperado */}
+      {(() => {
+        const br = calcNextBR(client);
+        const aL = brAlertLabel(br.status, br.daysUntil);
+        if (!aL && br.status === "ok") {
+          // Status OK: mostra info discreta
+          const nextStr = br.nextExpected
+            ? br.nextExpected.toLocaleDateString("pt-BR", { day:"2-digit", month:"2-digit", year:"numeric" })
+            : "—";
+          return (
+            <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", borderRadius:8, background:"#f0fdf4", border:"1px solid #bbf7d0", marginBottom:14 }}>
+              <span style={{ fontSize:16 }}>✅</span>
+              <div style={{ fontSize:12, color:"#15803d" }}>
+                <strong>BR em dia.</strong> Próximo previsto: <strong>{nextStr}</strong> (em {br.daysUntil} dias)
+              </div>
+            </div>
+          );
+        }
+        if (aL) {
+          const nextStr = br.nextExpected
+            ? br.nextExpected.toLocaleDateString("pt-BR", { day:"2-digit", month:"2-digit", year:"numeric" })
+            : "—";
+          return (
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, padding:"12px 14px", borderRadius:8, background:aL.bg, border:`1px solid ${aL.border}`, marginBottom:14 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                <span style={{ fontSize:20 }}>{aL.emoji}</span>
+                <div>
+                  <div style={{ fontSize:13, fontWeight:700, color:aL.color }}>{aL.text}</div>
+                  <div style={{ fontSize:11, color:"#6b7280", marginTop:1 }}>
+                    {br.status === "never"
+                      ? `Frequência definida: ${client.brFrequency || "não definida"}`
+                      : `Previsto para ${nextStr} · Freq: ${client.brFrequency}`}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  const today = new Date().toLocaleDateString("pt-BR", { day:"2-digit", month:"2-digit", year:"numeric" });
+                  setNewBR(b => ({ ...b, date: today }));
+                  setShowForm(true);
+                }}
+                style={{ padding:"7px 14px", borderRadius:7, background:"#1d4ed8", color:"#fff", border:"none", fontSize:12, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap", flexShrink:0 }}>
+                📅 Marcar BR Hoje
+              </button>
+            </div>
+          );
+        }
+        return null;
+      })()}
 
       {/* Progress bar */}
       {expected && (
