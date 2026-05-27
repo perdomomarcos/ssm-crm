@@ -137,7 +137,7 @@ const TECH_COLORS = {
 
 // ─── Score engines ────────────────────────────────────────────────────────────
 function calcTrend(arr) {
-  if (!arr || arr.length < 2) return null;
+  if (!Array.isArray(arr) || arr.length < 2) return null;
   const valid = arr.filter(v => v != null && v !== "" && !isNaN(v) && Number(v) > 0).map(Number);
   if (valid.length < 2) return "sem_dados";
   const last = valid[valid.length - 1];
@@ -964,7 +964,7 @@ function BRSection({ client, onSave }) {
   const css = mkCss(T);
   const [showForm, setShowForm] = useState(false);
   const [newBR, setNewBR] = useState({ date:"", type:"Online", notes:"" });
-  const brList = client.brReviews || [];
+  const brList = Array.isArray(client.brReviews) ? client.brReviews : [];
   const thisYear = brThisYear(brList);
   const expected = calcExpectedBRs(client.brFrequency);
   const pct = expected ? Math.min(100, Math.round((thisYear.length / expected) * 100)) : null;
@@ -1052,7 +1052,7 @@ function BRSection({ client, onSave }) {
         </div>
       ) : (
         <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-          {[...brList].sort((a,b) => {
+          {(Array.isArray(brList)?[...brList]:[]).sort((a,b) => {
             const da = parseDate(a.date), db = parseDate(b.date);
             return (db||0) - (da||0);
           }).map(br => {
@@ -1095,7 +1095,7 @@ function ClientDetail({ client, onSave, onBack, onDelete }) {
   const q = matrixQuadrant(churn, rescue);
   const cL = churnLabel(churn), rL = rescueLabel(rescue);
   const cloudH = [...(client.azureHistory||[]),...(client.awsHistory||[])].map(Number).filter(v=>!isNaN(v)&&v>0);
-  const trend = calcTrend(cloudH.length?[...(client.awsHistory||[]),...(client.azureHistory||[])]:client.m365History);
+  const trend = calcTrend(cloudH.length?[...(client.awsHistory||[]),...(client.azureHistory||[])]:(client.m365History||[]));
   const dSSM = daysSince(client.lastContactSSM);
 
   if (editing) return (
