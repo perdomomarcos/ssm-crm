@@ -458,12 +458,23 @@ function Matrix({ clients }) {
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 function Dashboard({ clients, onNavigate }) {
   const T = useT();
-  const scored = useMemo(() => clients.map(c => ({ ...c, churn:calcChurnRisk(c), rescue:calcRescuePotential(c) })), [clients]);
+  const scored = useMemo(() => clients.map(c => ({
+    ...c,
+    churn: calcChurnRisk(c),
+    rescue: calcRescuePotential(c),
+  })), [clients]);
   const critical = scored.filter(c => c.churn>=70).length;
   const highRisk = scored.filter(c => c.churn>=45&&c.churn<70).length;
   const highRescue = scored.filter(c => c.rescue>=65).length;
-  const top6 = [...scored].sort((a,b)=>(b.churn+b.rescue)-(a.churn+a.rescue)).slice(0,6);
   const techDist = useMemo(() => clients.reduce((a,c)=>{a[c.tech]=(a[c.tech]||0)+1;return a;},{}), [clients]);
+  const churnList = scored
+    .filter(c => c.churn >= 45 && (daysSince(c.lastContactSSM) === null || daysSince(c.lastContactSSM) > 90))
+    .sort((a,b) => b.churn - a.churn)
+    .slice(0, 8);
+  const rescueList = scored
+    .filter(c => c.rescue >= 40 && (daysSince(c.lastContactSSM) === null || daysSince(c.lastContactSSM) > 90))
+    .sort((a,b) => b.rescue - a.rescue)
+    .slice(0, 8);
 
   const StatCard = ({ label, value, color, sub }) => (
     <div style={{ background:T.card, borderRadius:12, padding:"18px 20px", border:`1px solid ${T.border}`, borderTop:`3px solid ${color}`, flex:1, minWidth:120 }}>
@@ -482,39 +493,58 @@ function Dashboard({ clients, onNavigate }) {
         <StatCard label="Alto Potencial"    value={highRescue}     color="#7c3aed" sub="resgate ≥ 65" />
       </div>
 
-      <div style={{ display:"grid", gridTemplateColumns:"1.4fr 1fr", gap:16 }}>
-        {/* Top 6 */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+        {/* Painel Risco de Churn */}
         <div style={{ background:T.card, borderRadius:12, border:`1px solid ${T.border}`, padding:20 }}>
-          <div style={{ fontSize:14, fontWeight:700, color:T.text, marginBottom:14 }}>🎯 Prioridade — Maiores Churn + Potencial</div>
+          <div style={{ fontSize:14, fontWeight:700, color:"#dc2626", marginBottom:4 }}>🔴 Risco de Churn</div>
+          <div style={{ fontSize:11, color:T.textMuted, marginBottom:14 }}>Churn ≥ 45 · sem contato nos últimos 90 dias</div>
           <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-            {top6.map((c,i) => {
-              const cL = churnLabel(c.churn), rL = rescueLabel(c.rescue);
-              const q = matrixQuadrant(c.churn, c.rescue);
-              const cloudH = [...(c.azureHistory||[]),...(c.awsHistory||[])].map(Number).filter(v=>!isNaN(v)&&v>0);
+            {churnList.map((c) => {
+              const cL = churnLabel(c.churn);
+              const d = daysSince(c.lastContactSSM);
               return (
-                <div key={c.id} onClick={()=>onNavigate("detail",c)} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8, background:i===0?"#fef2f2":T.cardAlt, cursor:"pointer", border:`1px solid ${i===0?"#fecaca":T.border}` }}>
-                  <span style={{ fontWeight:800, color:"#9ca3af", fontSize:13, width:18 }}>{i+1}</span>
+                <div key={c.id} onClick={()=>onNavigate("detail",c)} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8, background:T.cardAlt, cursor:"pointer", border:`1px solid ${T.border}` }}>
+                  <div style={{ width:36, height:36, borderRadius:8, background:cL.bg, border:`1px solid ${cL.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:14, color:cL.color, fontFamily:"monospace", flexShrink:0 }}>{c.churn}</div>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:13, fontWeight:600, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.name}</div>
-                    <div style={{ display:"flex", gap:6, marginTop:3, alignItems:"center" }}>
+                    <div style={{ display:"flex", gap:6, marginTop:2, alignItems:"center" }}>
                       <TechBadge tech={c.tech}/>
-                      <span style={{ fontSize:10, color:q.color, fontWeight:700, background:q.bg, borderRadius:4, padding:"1px 5px" }}>{q.label}</span>
+                      <span style={{ fontSize:10, color:T.textSub }}>{c.inactivityReason||"—"}</span>
                     </div>
                   </div>
-                  <Sparkline data={cloudH.length?cloudH:c.m365History} color={cloudH.length?"#3b82f6":"#f43f5e"}/>
-                  <div style={{ display:"flex", gap:4 }}>
-                    <div style={{ textAlign:"center", background:"#fef2f2", borderRadius:6, padding:"3px 6px" }}>
-                      <div style={{ fontSize:9, color:"#9ca3af", textTransform:"uppercase" }}>Churn</div>
-                      <div style={{ fontSize:15, fontWeight:900, color:cL.color, fontFamily:"monospace" }}>{c.churn}</div>
-                    </div>
-                    <div style={{ textAlign:"center", background:"#eff6ff", borderRadius:6, padding:"3px 6px" }}>
-                      <div style={{ fontSize:9, color:"#9ca3af", textTransform:"uppercase" }}>Resgate</div>
-                      <div style={{ fontSize:15, fontWeight:900, color:rL.color, fontFamily:"monospace" }}>{c.rescue}</div>
-                    </div>
+                  <div style={{ fontSize:10, color: d===null?"#dc2626": d>365?"#dc2626": d>180?"#ea580c":"#d97706", fontWeight:700, textAlign:"right", flexShrink:0 }}>
+                    {d===null?"sem data":`${d}d`}
                   </div>
                 </div>
               );
             })}
+            {churnList.length===0 && <div style={{ fontSize:12, color:T.textSub, padding:"12px 0" }}>Nenhum cliente em risco com contato pendente.</div>}
+          </div>
+        </div>
+
+        {/* Painel Potencial de Resgate */}
+        <div style={{ background:T.card, borderRadius:12, border:`1px solid ${T.border}`, padding:20 }}>
+          <div style={{ fontSize:14, fontWeight:700, color:"#1d4ed8", marginBottom:4 }}>⭐ Potencial de Resgate</div>
+          <div style={{ fontSize:11, color:T.textMuted, marginBottom:14 }}>Resgate ≥ 40 · sem contato nos últimos 90 dias</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            {rescueList.map((c) => {
+              const rL = rescueLabel(c.rescue);
+              const cloudH = [...(c.azureHistory||[]),...(c.awsHistory||[])].map(Number).filter(v=>!isNaN(v)&&v>0);
+              return (
+                <div key={c.id} onClick={()=>onNavigate("detail",c)} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8, background:T.cardAlt, cursor:"pointer", border:`1px solid ${T.border}` }}>
+                  <div style={{ width:36, height:36, borderRadius:8, background:rL.bg, border:`1px solid ${rL.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:14, color:rL.color, fontFamily:"monospace", flexShrink:0 }}>{c.rescue}</div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:600, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.name}</div>
+                    <div style={{ display:"flex", gap:6, marginTop:2, alignItems:"center" }}>
+                      <TechBadge tech={c.tech}/>
+                      <span style={{ fontSize:10, color:T.textSub }}>{c.category}</span>
+                    </div>
+                  </div>
+                  <Sparkline data={cloudH.length?cloudH:(c.m365History||[])} color={cloudH.length?"#3b82f6":"#f43f5e"}/>
+                </div>
+              );
+            })}
+            {rescueList.length===0 && <div style={{ fontSize:12, color:T.textSub, padding:"12px 0" }}>Nenhum cliente com alto potencial de resgate pendente.</div>}
           </div>
         </div>
 
@@ -581,11 +611,9 @@ function ClientList({ clients, onSelect, onAdd, onImport, importing }) {
   const processed = useMemo(() => {
     let list = clients.map(c=>({ ...c, churn:calcChurnRisk(c), rescue:calcRescuePotential(c) }));
     list = list.map(c=>({ ...c, quadrant:matrixQuadrant(c.churn,c.rescue).label }));
-
     if (search) list = list.filter(c=>c.name.toLowerCase().includes(search.toLowerCase())||(c.id||"").toLowerCase().includes(search.toLowerCase()));
     if (filterTech!=="Todos") list = list.filter(c=>c.tech===filterTech);
     if (filterQ!=="Todos") list = list.filter(c=>c.quadrant.includes(filterQ.split(" ").pop()));
-
     if (filterChurn!=="Todos") list = list.filter(c=>{
       if (filterChurn==="Crítico (≥70)")  return c.churn>=70;
       if (filterChurn==="Alto (45–69)")   return c.churn>=45&&c.churn<70;
@@ -593,7 +621,6 @@ function ClientList({ clients, onSelect, onAdd, onImport, importing }) {
       if (filterChurn==="Baixo (<25)")    return c.churn<25;
       return true;
     });
-
     if (filterRescue!=="Todos") list = list.filter(c=>{
       if (filterRescue==="Alto (≥65)")    return c.rescue>=65;
       if (filterRescue==="Médio (40–64)") return c.rescue>=40&&c.rescue<65;
@@ -601,7 +628,6 @@ function ClientList({ clients, onSelect, onAdd, onImport, importing }) {
       if (filterRescue==="Mínimo (<20)")  return c.rescue<20;
       return true;
     });
-
     if (filterContato!=="Todos") list = list.filter(c=>{
       const d = daysSince(c.lastContactSSM);
       if (filterContato==="Sem registro")     return d===null;
@@ -611,7 +637,6 @@ function ClientList({ clients, onSelect, onAdd, onImport, importing }) {
       if (filterContato==="Últimos 6 meses")  return d!==null&&d<=180;
       return true;
     });
-
     if (sort==="churn_desc")   list.sort((a,b)=>b.churn-a.churn);
     else if (sort==="rescue_desc") list.sort((a,b)=>b.rescue-a.rescue);
     else if (sort==="name")    list.sort((a,b)=>a.name.localeCompare(b.name));
@@ -627,12 +652,10 @@ function ClientList({ clients, onSelect, onAdd, onImport, importing }) {
 
   const hasFilters = filterTech!=="Todos"||filterQ!=="Todos"||filterChurn!=="Todos"||filterRescue!=="Todos"||filterContato!=="Todos"||search;
   const clearAll = ()=>{ setSearch(""); setFilterTech("Todos"); setFilterQ("Todos"); setFilterChurn("Todos"); setFilterRescue("Todos"); setFilterContato("Todos"); };
-
   const selStyle = { ...css.select, width:"auto", padding:"7px 10px" };
 
   return (
     <div>
-      {/* Linha 1: busca + botões */}
       <div style={{ display:"flex", gap:8, marginBottom:8, flexWrap:"wrap", alignItems:"center" }}>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Buscar por nome ou SCU…" style={{ ...css.input, width:230 }}/>
         {hasFilters&&(
@@ -650,8 +673,6 @@ function ClientList({ clients, onSelect, onAdd, onImport, importing }) {
           </button>
         </div>
       </div>
-
-      {/* Linha 2: filtros */}
       <div style={{ display:"flex", gap:8, marginBottom:12, flexWrap:"wrap", alignItems:"center" }}>
         <span style={{ fontSize:11, color:T.textSub, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>Filtrar:</span>
         <select value={filterTech} onChange={e=>setFilterTech(e.target.value)} style={selStyle}>
@@ -682,11 +703,9 @@ function ClientList({ clients, onSelect, onAdd, onImport, importing }) {
           <option value="contato_asc">Sem contato há mais tempo</option>
         </select>
       </div>
-
       <div style={{ fontSize:12, color:T.textMuted, marginBottom:8 }}>
-        {processed.length} cliente{processed.length!==1?"s":""}{hasFilters?` (de ${clients.length} total)`:""} 
+        {processed.length} cliente{processed.length!==1?"s":""}{hasFilters?` (de ${clients.length} total)`:""}
       </div>
-
       <div style={{ background:T.card, borderRadius:12, border:`1px solid ${T.border}`, padding:0, overflow:"hidden" }}>
         <table style={{ width:"100%", borderCollapse:"collapse" }}>
           <thead>
@@ -732,7 +751,6 @@ function ClientList({ clients, onSelect, onAdd, onImport, importing }) {
                   <td style={{ padding:"11px 12px" }}>
                     <div style={{ fontSize:12, color:T.text }}>{c.lastContactSSM||c.lastContactLog||"—"}</div>
                     {d!==null&&<div style={{ fontSize:10, color:d>730?"#dc2626":d>365?"#ea580c":d>180?"#d97706":T.textSub, fontWeight:600 }}>{d}d atrás</div>}
-                    {d===null&&(c.lastContactSSM||c.lastContactLog)===undefined&&<div style={{ fontSize:10, color:"#dc2626", fontWeight:600 }}>Sem registro</div>}
                   </td>
                 </tr>
               );
