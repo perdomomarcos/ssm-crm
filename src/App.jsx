@@ -59,8 +59,10 @@ function toDB(c) {
     commercial_contact:c.commercialContact, renewal_history:c.renewalHistory,
     inactivity_reason:c.inactivityReason, observations:c.observations||"",
     folder_path:c.folderPath||"", br_frequency:c.brFrequency||"Trimestral",
-    aws_history:c.awsHistory||[], azure_history:c.azureHistory||[],
-    m365_history:c.m365History||[], br_reviews:c.brReviews||[],
+    aws_history: Array.isArray(c.awsHistory) ? migrateHistory(c.awsHistory) : (c.awsHistory||{}),
+    azure_history: Array.isArray(c.azureHistory) ? migrateHistory(c.azureHistory) : (c.azureHistory||{}),
+    m365_history: Array.isArray(c.m365History) ? migrateHistory(c.m365History) : (c.m365History||{}),
+    br_reviews:c.brReviews||[],
   };
 }
 
@@ -74,22 +76,41 @@ function fromDB(r) {
     commercialContact:r.commercial_contact||"Desconhecido", renewalHistory:r.renewal_history||"Desconhecido",
     inactivityReason:r.inactivity_reason||"Desconhecido", observations:r.observations||"",
     folderPath:r.folder_path||"", brFrequency:r.br_frequency||"Trimestral",
-    awsHistory:r.aws_history||[], azureHistory:r.azure_history||[],
-    m365History:r.m365_history||[], brReviews:r.br_reviews||[],
+    awsHistory:  migrateHistory(r.aws_history),
+    azureHistory: migrateHistory(r.azure_history),
+    m365History:  migrateHistory(r.m365_history),
+    brReviews:r.br_reviews||[],
   };
 }
 
 function getClosedMonths() {
   const now = new Date();
-  const months = [];
-  for (let i = 6; i >= 1; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    months.push(d.toLocaleDateString("pt-BR", { month: "short", year: "2-digit" })
-      .replace(".", "").replace(/^\w/, c => c.toUpperCase()));
-  }
-  return months;
+  // Mês 1 = mais antigo, Mês 6 = mês anterior fechado (nunca o mês corrente)
+  return Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (6 - i), 1);
+    return {
+      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+      label: d.toLocaleDateString("pt-BR", { month: "short", year: "2-digit" })
+               .replace(".", "").replace(/^\w/, c => c.toUpperCase()),
+    };
+  });
 }
-const MONTHS = getClosedMonths();
+const MONTHS = getClosedMonths(); // [{key:"2024-11", label:"Nov 24"}, ...]
+
+// Extrai valores numéricos de um history (objeto {AAAA-MM:val} ou array legado)
+function histValues(histObj) {
+  if (!histObj) return [];
+  if (Array.isArray(histObj))
+    return histObj.map(Number).filter(v => !isNaN(v) && v >= 0);
+  return Object.keys(histObj).sort().map(k => Number(histObj[k])).filter(v => !isNaN(v) && v >= 0);
+}
+
+// Migra array posicional legado → objeto {AAAA-MM: valor}
+function migrateHistory(val) {
+  if (!val) return {};
+  if (!Array.isArray(val)) return val; // já é objeto
+  return Object.fromEntries(MONTHS.map((m, i) => [m.key, val[i] ?? ""]));
+}
 
 const TECH_OPTIONS = ["AWS","Azure","M365-CSP","M365-EA","AWS+Azure","AWS+M365-CSP","Azure+M365-CSP","Misto","Outro"];
 const CATEGORY_OPTIONS = ["Premium","Advanced","Basic","Desconhecido"];
@@ -136,13 +157,15 @@ const TECH_COLORS = {
 };
 
 // ─── Score engines ────────────────────────────────────────────────────────────
-function calcTrend(arr) {
+function calcTrend(hist) {
+  const arr = histValues(hist);
+  const valid = arr.filter(v => v > 0);
   if (!arr || arr.length < 2) return null;
-  const valid = arr.filter(v => v != null && v !== "" && !isNaN(v) && Number(v) > 0).map(Number);
   if (valid.length < 2) return "sem_dados";
   const last = valid[valid.length - 1];
   const peak = Math.max(...valid);
-  const avg1 = valid.slice(0, Math.ceil(valid.length / 2)).reduce((a,b)=>a+b,0) / Math.ceil(valid.length/2);
+  const half = Math.ceil(valid.length / 2);
+  const avg1 = valid.slice(0, half).reduce((a,b)=>a+b,0) / half;
   const avg2 = valid.slice(Math.floor(valid.length / 2)).reduce((a,b)=>a+b,0) / Math.ceil(valid.length/2);
   if (last === 0) return "zerado";
   if (peak > 0 && last / peak < 0.55) return "queda_abrupta";
@@ -190,12 +213,15 @@ function calcExpectedBRs(freq) {
 }
 
 function calcChurnRisk(c) {
-  // Score 0-100: quanto maior, maior risco de churn
   let score = 0;
 
-  const cloudAll = [...(c.awsHistory||[]),...(c.azureHistory||[])].map(Number).filter(v=>!isNaN(v)&&v>=0);
-  const m365 = (c.m365History||[]).map(Number).filter(v=>!isNaN(v)&&v>=0);
-  const trend = calcTrend(cloudAll.length ? [...(c.awsHistory||[]),...(c.azureHistory||[])] : c.m365History);
+  const awsVals   = histValues(c.awsHistory);
+  const azureVals = histValues(c.azureHistory);
+  const m365Vals  = histValues(c.m365History);
+  const cloudAll  = [...awsVals, ...azureVals].filter(v => v > 0);
+  const m365      = m365Vals.filter(v => v > 0);
+  const trendHist = cloudAll.length ? { ...c.awsHistory, ...c.azureHistory } : c.m365History;
+  const trend     = calcTrend(trendHist);
 
   // Consumo caindo = risco alto
   if (trend === "zerado")        score += 35;
@@ -237,12 +263,15 @@ function calcChurnRisk(c) {
 }
 
 function calcRescuePotential(c) {
-  // Score 0-100: quanto maior, mais vale resgatar
   let score = 0;
 
-  const cloudAll = [...(c.awsHistory||[]),...(c.azureHistory||[])].map(Number).filter(v=>!isNaN(v)&&v>0);
-  const m365 = (c.m365History||[]).map(Number).filter(v=>!isNaN(v)&&v>0);
-  const trend = calcTrend(cloudAll.length ? [...(c.awsHistory||[]),...(c.azureHistory||[])] : c.m365History);
+  const awsVals   = histValues(c.awsHistory);
+  const azureVals = histValues(c.azureHistory);
+  const m365Vals  = histValues(c.m365History);
+  const cloudAll  = [...awsVals, ...azureVals].filter(v => v > 0);
+  const m365      = m365Vals.filter(v => v > 0);
+  const trendHist = cloudAll.length ? { ...c.awsHistory, ...c.azureHistory } : c.m365History;
+  const trend     = calcTrend(trendHist);
 
   // Porte estimado pelo pico de consumo
   const peak = cloudAll.length ? Math.max(...cloudAll) : 0;
@@ -335,7 +364,10 @@ function parseExcelClients(file) {
         for (const row of rows.slice(4)) {
           if (!row[0] || isNaN(Number(row[0]))) continue;
           const name = String(row[1]||"").trim(); if (!name) continue;
-          const pn = v => { const n=parseFloat(String(v).replace(",",".")); return isNaN(n)?"":n; };
+          const toHistObj = (cols) => {
+            const vals = cols.map(v => { const n = parseFloat(String(v).replace(",",".")); return isNaN(n) ? "" : n; });
+            return Object.fromEntries(MONTHS.map((m, i) => [m.key, vals[i] ?? ""]));
+          };
           clients.push({
             id: String(row[2]||`BR-SCU-${Date.now()}`).trim(),
             name,
@@ -345,10 +377,10 @@ function parseExcelClients(file) {
             contractActive: String(row[6]||"Desconhecido").trim(),
             category: String(row[7]||"Desconhecido").trim(),
             contractEnd: String(row[8]||"").trim(),
-            awsHistory:   [row[9],row[10],row[11],row[12],row[13],row[14]].map(pn),
-            azureHistory: [row[15],row[16],row[17],row[18],row[19],row[20]].map(pn),
-            m365History:  [row[21],row[22],row[23],row[24],row[25],row[26]].map(pn),
-            tickets90d: pn(row[27])||0,
+            awsHistory:   toHistObj([row[9],row[10],row[11],row[12],row[13],row[14]]),
+            azureHistory: toHistObj([row[15],row[16],row[17],row[18],row[19],row[20]]),
+            m365History:  toHistObj([row[21],row[22],row[23],row[24],row[25],row[26]]),
+            tickets90d: parseFloat(String(row[27]).replace(",",".")) || 0,
             ticketType: String(row[28]||"Nenhum").trim(),
             commercialContact: String(row[29]||"Desconhecido").trim(),
             lastContactSSM: String(row[30]||"").trim(),
@@ -386,7 +418,7 @@ function TechBadge({ tech }) {
 }
 
 function Sparkline({ data, color="#3b82f6" }) {
-  const valid = (data||[]).map(Number).filter(v=>!isNaN(v)&&v>0);
+  const valid = histValues(data).filter(v => v > 0);
   if (!valid.length) return <span style={{ color:"#d1d5db", fontSize:11 }}>—</span>;
   const max = Math.max(...valid,1), w=72, h=24;
   const pts = valid.map((v,i)=>`${(i/(valid.length-1||1))*w},${h-(v/max)*(h-4)-2}`).join(" ");
@@ -490,7 +522,7 @@ function Dashboard({ clients, onNavigate }) {
             {top6.map((c,i) => {
               const cL = churnLabel(c.churn), rL = rescueLabel(c.rescue);
               const q = matrixQuadrant(c.churn, c.rescue);
-              const cloudH = [...(c.azureHistory||[]),...(c.awsHistory||[])].map(Number).filter(v=>!isNaN(v)&&v>0);
+              const cloudH = [...histValues(c.azureHistory), ...histValues(c.awsHistory)].filter(v => v > 0);
               return (
                 <div key={c.id} onClick={()=>onNavigate("detail",c)} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8, background:i===0?"#fef2f2":T.cardAlt, cursor:"pointer", border:`1px solid ${i===0?"#fecaca":T.border}` }}>
                   <span style={{ fontWeight:800, color:"#9ca3af", fontSize:13, width:18 }}>{i+1}</span>
@@ -566,7 +598,7 @@ function ClientList({ clients, onSelect, onAdd, onImport, importing }) {
   const [search, setSearch] = useState("");
   const [filterTech, setFilterTech] = useState("Todos");
   const [filterQ, setFilterQ] = useState("Todos");
-  const [sort, setSort] = useState("churn_desc");
+  const [sort, setSort] = useState("name");
   const fileRef = useRef();
 
   const techs = ["Todos",...new Set(clients.map(c=>c.tech))];
@@ -614,7 +646,7 @@ function ClientList({ clients, onSelect, onAdd, onImport, importing }) {
         <table style={{ width:"100%", borderCollapse:"collapse" }}>
           <thead>
             <tr style={{ background:T.tableHead }}>
-              {["Cliente","SCU","Tecnologia","Risco Churn","Pot. Resgate","Quadrante","Consumo (6m)","Último Contato"].map(h=>(
+              {["Cliente","SCU","Tecnologia","Contrato","Risco Churn","Pot. Resgate","Quadrante","Consumo (6m)","Último Contato"].map(h=>(
                 <th key={h} style={{ padding:"10px 12px", textAlign:"left", fontSize:11, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.05em", borderBottom:`1px solid ${T.border}`, whiteSpace:"nowrap" }}>{h}</th>
               ))}
             </tr>
@@ -622,7 +654,7 @@ function ClientList({ clients, onSelect, onAdd, onImport, importing }) {
           <tbody>
             {processed.map(c=>{
               const cL=churnLabel(c.churn), rL=rescueLabel(c.rescue), q=matrixQuadrant(c.churn,c.rescue);
-              const cloudH=[...(c.azureHistory||[]),...(c.awsHistory||[])].map(Number).filter(v=>!isNaN(v)&&v>0);
+              const cloudH=[...histValues(c.azureHistory),...histValues(c.awsHistory)].filter(v=>v>0);
               return (
                 <tr key={c.id} onClick={()=>onSelect(c)} style={{ cursor:"pointer", borderBottom:`1px solid ${T.borderLight}` }}
                   onMouseEnter={e=>e.currentTarget.style.background=T.tableHover}
@@ -633,6 +665,13 @@ function ClientList({ clients, onSelect, onAdd, onImport, importing }) {
                   </td>
                   <td style={{ padding:"11px 12px" }}><span style={{ fontFamily:"monospace", fontSize:11, color:T.textMuted }}>{c.id}</span></td>
                   <td style={{ padding:"11px 12px" }}><TechBadge tech={c.tech}/></td>
+                  <td style={{ padding:"11px 12px" }}>
+                    {c.contractActive === "Sim"
+                      ? <span style={{ fontSize:11, fontWeight:700, color:"#16a34a", background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:6, padding:"2px 8px" }}>✓ Ativo</span>
+                      : c.contractActive === "Não"
+                      ? <span style={{ fontSize:11, fontWeight:700, color:"#dc2626", background:"#fef2f2", border:"1px solid #fecaca", borderRadius:6, padding:"2px 8px" }}>✗ Inativo</span>
+                      : <span style={{ fontSize:11, color:T.textSub }}>—</span>}
+                  </td>
                   <td style={{ padding:"11px 12px" }}>
                     <div style={{ display:"flex", alignItems:"center", gap:5 }}>
                       <div style={{ width:32, height:32, borderRadius:"50%", border:`2px solid ${cL.color}`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:12, color:cL.color }}>{c.churn}</div>
@@ -658,7 +697,7 @@ function ClientList({ clients, onSelect, onAdd, onImport, importing }) {
               );
             })}
             {processed.length===0&&(
-              <tr><td colSpan={8} style={{ padding:40, textAlign:"center", color:T.textSub, fontSize:14, background:T.card }}>
+              <tr><td colSpan={9} style={{ padding:40, textAlign:"center", color:T.textSub, fontSize:14, background:T.card }}>
                 {clients.length===0?"Nenhum cliente cadastrado. Importe o Excel ou adicione manualmente.":"Nenhum resultado."}
               </td></tr>
             )}
@@ -681,7 +720,38 @@ function FormSection({ title, children }) {
   );
 }
 
-// ─── Form field components (fora do ClientForm para evitar re-mount no re-render) ──
+// ─── DateInput com máscara DD/MM/AAAA automática ──────────────────────────────
+function DateInput({ value, onChange, placeholder="DD/MM/AAAA", style: extraStyle }) {
+  const handleChange = (e) => {
+    let v = e.target.value.replace(/\D/g, ""); // só dígitos
+    if (v.length > 8) v = v.slice(0, 8);
+    // Insere barras automaticamente
+    if (v.length >= 5) v = v.slice(0,2) + "/" + v.slice(2,4) + "/" + v.slice(4);
+    else if (v.length >= 3) v = v.slice(0,2) + "/" + v.slice(2);
+    onChange(v);
+  };
+  return (
+    <input
+      type="text"
+      value={value ?? ""}
+      placeholder={placeholder}
+      maxLength={10}
+      onChange={handleChange}
+      style={extraStyle}
+    />
+  );
+}
+
+function FDate({ label, field, value, onChange, span=1, css }) {
+  return (
+    <div style={{ gridColumn:`span ${span}` }}>
+      <label style={css.label}>{label}</label>
+      <DateInput value={value} onChange={v => onChange(field, v)} style={css.input}/>
+    </div>
+  );
+}
+
+
 function FInp({ label, field, value, onChange, type="text", span=1, placeholder="", css, T }) {
   return (
     <div style={{ gridColumn:`span ${span}` }}>
@@ -705,15 +775,17 @@ function FSel({ label, field, value, onChange, options, span=1, css }) {
 }
 
 function FHistRow({ label, field, values, onChange, color, css, T }) {
+  // values agora é objeto {AAAA-MM: val}
+  const obj = (!values || Array.isArray(values)) ? migrateHistory(values) : values;
   return (
     <div>
       <label style={css.label}>{label}</label>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:6 }}>
-        {MONTHS.map((m,i) => (
-          <div key={m}>
-            <div style={{ fontSize:10, color:T.textSub, textAlign:"center", marginBottom:3 }}>{m}</div>
-            <input type="number" value={values?.[i] ?? ""}
-              onChange={e => onChange(field, i, e.target.value)}
+        {MONTHS.map((m) => (
+          <div key={m.key}>
+            <div style={{ fontSize:10, color:T.textSub, textAlign:"center", marginBottom:3 }}>{m.label}</div>
+            <input type="number" value={obj[m.key] ?? ""}
+              onChange={e => onChange(field, m.key, e.target.value)}
               style={{ ...css.input, textAlign:"center", padding:"6px 4px", borderColor:`${color}60` }}/>
           </div>
         ))}
@@ -735,9 +807,9 @@ function ClientForm({ initial, onSave, onCancel }) {
     category: initial?.category || "Desconhecido",
     contractEnd: initial?.contractEnd || "",
     lastContactLog: initial?.lastContactLog || "",
-    awsHistory: initial?.awsHistory || Array(6).fill(""),
-    azureHistory: initial?.azureHistory || Array(6).fill(""),
-    m365History: initial?.m365History || Array(6).fill(""),
+    awsHistory:   Array.isArray(initial?.awsHistory)   ? migrateHistory(initial.awsHistory)   : (initial?.awsHistory   || {}),
+    azureHistory: Array.isArray(initial?.azureHistory) ? migrateHistory(initial.azureHistory) : (initial?.azureHistory || {}),
+    m365History:  Array.isArray(initial?.m365History)  ? migrateHistory(initial.m365History)  : (initial?.m365History  || {}),
     tickets90d: initial?.tickets90d || "",
     ticketType: initial?.ticketType || "Nenhum",
     commercialContact: initial?.commercialContact || "Desconhecido",
@@ -755,11 +827,11 @@ function ClientForm({ initial, onSave, onCancel }) {
   const set = useCallback((field, val) =>
     setForm(f => ({...f, [field]: val})), []);
 
-  const setHist = useCallback((field, idx, val) =>
+  const setHist = useCallback((field, key, val) =>
     setForm(f => {
-      const arr = [...(f[field] || Array(6).fill(""))];
-      arr[idx] = val === "" ? "" : isNaN(Number(val)) ? val : Number(val);
-      return {...f, [field]: arr};
+      const obj = Array.isArray(f[field]) ? migrateHistory(f[field]) : { ...(f[field] || {}) };
+      obj[key] = val === "" ? "" : isNaN(Number(val)) ? val : Number(val);
+      return { ...f, [field]: obj };
     }), []);
 
   const collect = () => ({
@@ -779,13 +851,13 @@ function ClientForm({ initial, onSave, onCancel }) {
         <FSel {...p} label="Categoria" field="category" value={form.category} options={CATEGORY_OPTIONS}/>
         <FInp {...p} label="Nº de Contratos" field="nContracts" value={form.nContracts} type="number"/>
         <FSel {...p} label="Contrato Realmente Ativo?" field="contractActive" value={form.contractActive} options={SIM_NAO}/>
-        <FInp {...p} label="Vencimento do Contrato (DD/MM/AAAA)" field="contractEnd" value={form.contractEnd} placeholder="Ex: 31/12/2026"/>
+        <FDate {...p} label="Vencimento do Contrato (DD/MM/AAAA)" field="contractEnd" value={form.contractEnd}/>
         <FInp {...p} label="Account Manager" field="am" value={form.am}/>
       </FormSection>
 
       <div style={{ background:T.card, borderRadius:12, border:`1px solid ${T.border}`, padding:20, marginBottom:14 }}>
         <div style={{ fontSize:12, fontWeight:700, color:T.text, paddingBottom:12, marginBottom:14, borderBottom:`1px solid ${T.borderLight}` }}>
-          📊 Histórico de Consumo — Últimos 6 meses fechados ({MONTHS[0]} → {MONTHS[5]})
+          📊 Histórico de Consumo — Últimos 6 meses fechados ({MONTHS[0].label} → {MONTHS[5].label})
         </div>
         <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
           <FHistRow {...ph} label="AWS — Valor mensal (moeda do contrato)" field="awsHistory" values={form.awsHistory} color="#f97316"/>
@@ -801,7 +873,7 @@ function ClientForm({ initial, onSave, onCancel }) {
       </FormSection>
 
       <FormSection title="🤝 Relacionamento SSM">
-        <FInp {...p} label="Data Último Contato SSM (DD/MM/AAAA)" field="lastContactSSM" value={form.lastContactSSM} placeholder="Ex: 15/05/2026"/>
+        <FDate {...p} label="Data Último Contato SSM (DD/MM/AAAA)" field="lastContactSSM" value={form.lastContactSSM}/>
         <FSel {...p} label="Histórico de Renovação" field="renewalHistory" value={form.renewalHistory} options={RENEWAL_OPTIONS}/>
         <FSel {...p} label="AM Conhece o Cliente?" field="amKnows" value={form.amKnows} options={SIM_NAO}/>
         <FSel {...p} label="Motivo de Inatividade" field="inactivityReason" value={form.inactivityReason} options={INACTIVITY_OPTIONS} span={2}/>
@@ -915,9 +987,7 @@ function BRSection({ client, onSave }) {
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 2fr auto", gap:10, alignItems:"end" }}>
             <div>
               <label style={css.label}>Data do BR</label>
-              <input type="text" placeholder="DD/MM/AAAA" value={newBR.date}
-                onChange={e => setNewBR(b => ({...b, date:e.target.value}))}
-                style={css.input}/>
+              <DateInput value={newBR.date} onChange={v => setNewBR(b => ({...b, date:v}))} style={css.input}/>
             </div>
             <div>
               <label style={css.label}>Formato</label>
@@ -988,8 +1058,11 @@ function ClientDetail({ client, onSave, onBack, onDelete }) {
   const churn = calcChurnRisk(client), rescue = calcRescuePotential(client);
   const q = matrixQuadrant(churn, rescue);
   const cL = churnLabel(churn), rL = rescueLabel(rescue);
-  const cloudH = [...(client.azureHistory||[]),...(client.awsHistory||[])].map(Number).filter(v=>!isNaN(v)&&v>0);
-  const trend = calcTrend(cloudH.length?[...(client.awsHistory||[]),...(client.azureHistory||[])]:client.m365History);
+  const cloudH = [...histValues(client.azureHistory), ...histValues(client.awsHistory)].filter(v => v > 0);
+  const trendHist = cloudH.length
+    ? { ...(client.awsHistory || {}), ...(client.azureHistory || {}) }
+    : client.m365History;
+  const trend = calcTrend(trendHist);
   const dSSM = daysSince(client.lastContactSSM);
 
   if (editing) return (
@@ -1007,20 +1080,25 @@ function ClientDetail({ client, onSave, onBack, onDelete }) {
   );
 
   const HistViz = ({ label, data, color }) => {
-    const vals = (data||[]).map(v=>v===""||v==null?null:Number(v));
-    if (!vals.some(v=>v!=null&&!isNaN(v)&&v>0)) return null;
+    const obj = Array.isArray(data) ? migrateHistory(data) : (data || {});
+    const hasData = MONTHS.some(m => obj[m.key] != null && obj[m.key] !== "" && Number(obj[m.key]) > 0);
+    if (!hasData) return null;
     return (
       <div>
         <label style={css.label}>{label}</label>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:6 }}>
-          {MONTHS.map((m,i)=>(
-            <div key={m} style={{ textAlign:"center" }}>
-              <div style={{ fontSize:10, color:T.textSub, marginBottom:3 }}>{m}</div>
-              <div style={{ padding:"6px 4px", borderRadius:6, background:vals[i]?`${color}15`:T.cardAlt, fontSize:12, fontWeight:vals[i]?700:400, color:vals[i]?color:T.textSub }}>
-                {vals[i]!=null&&!isNaN(vals[i])&&vals[i]>0?vals[i].toLocaleString("pt-BR"):"—"}
+          {MONTHS.map((m) => {
+            const val = obj[m.key];
+            const num = val !== "" && val != null ? Number(val) : null;
+            return (
+              <div key={m.key} style={{ textAlign:"center" }}>
+                <div style={{ fontSize:10, color:T.textSub, marginBottom:3 }}>{m.label}</div>
+                <div style={{ padding:"6px 4px", borderRadius:6, background:num>0?`${color}15`:T.cardAlt, fontSize:12, fontWeight:num>0?700:400, color:num>0?color:T.textSub }}>
+                  {num!=null&&!isNaN(num)&&num>0?num.toLocaleString("pt-BR"):"—"}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     );
@@ -1110,7 +1188,7 @@ function ClientDetail({ client, onSave, onBack, onDelete }) {
       {/* Consumption */}
       <div style={{ background:T.card, borderRadius:12, border:`1px solid ${T.border}`, padding:20, marginBottom:14 }}>
         <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:16, paddingBottom:8, borderBottom:`1px solid ${T.borderLight}` }}>
-          📊 Histórico de Consumo — {MONTHS[0]} a {MONTHS[5]}
+          📊 Histórico de Consumo — {MONTHS[0].label} a {MONTHS[5].label}
         </div>
         <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
           <HistViz label="AWS — Valor mensal" data={client.awsHistory} color="#f97316"/>
@@ -1278,7 +1356,7 @@ export default function App() {
               <span style={{ fontSize:12, fontWeight:700, color:s.color, fontFamily:"monospace" }}>{s.val}</span>
             </div>
           ))}
-          <div style={{ marginTop:10, fontSize:10, color:"#64748b" }}>{MONTHS[0]} → {MONTHS[5]}</div>
+          <div style={{ marginTop:10, fontSize:10, color:"#64748b" }}>{MONTHS[0].label} → {MONTHS[5].label}</div>
         </div>
       </div>
 
@@ -1291,7 +1369,7 @@ export default function App() {
                 {view==="dashboard"?"📊 Dashboard":"👥 Clientes"}
               </h1>
               <div style={{ fontSize:13, color:T.textMuted, marginTop:3 }}>
-                {view==="dashboard"?"Visão geral · "+MONTHS[0]+" a "+MONTHS[5]:clients.length+" clientes cadastrados"}
+                {view==="dashboard"?"Visão geral · "+MONTHS[0].label+" a "+MONTHS[5].label:clients.length+" clientes cadastrados"}
               </div>
             </div>
           )}
