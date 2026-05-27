@@ -455,41 +455,94 @@ function Matrix({ clients }) {
   );
 }
 
+// ─── ChurnRow e RescueRow fora do Dashboard para evitar re-mount em produção ───
+function ChurnRow({ c, i, onNavigate }) {
+  const T = useT();
+  const cL = churnLabel(c.churn);
+  const dSSM = daysSince(c.lastContactSSM);
+  return (
+    <div onClick={() => onNavigate("detail", c)}
+      style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8,
+        background: i === 0 ? "#fef2f2" : T.cardAlt, cursor:"pointer",
+        border:`1px solid ${i === 0 ? "#fecaca" : T.border}` }}>
+      <div style={{ width:36, height:36, borderRadius:"50%", border:`2.5px solid ${cL.color}`,
+        display:"flex", alignItems:"center", justifyContent:"center",
+        fontWeight:900, fontSize:14, color:cL.color, flexShrink:0, fontFamily:"monospace" }}>
+        {c.churn}
+      </div>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontSize:13, fontWeight:600, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.name}</div>
+        <div style={{ display:"flex", gap:6, marginTop:3, alignItems:"center", flexWrap:"wrap" }}>
+          <TechBadge tech={c.tech}/>
+          <span style={{ fontSize:10, color:"#6b7280" }}>{c.inactivityReason || "—"}</span>
+        </div>
+      </div>
+      <div style={{ textAlign:"right", flexShrink:0 }}>
+        <div style={{ fontSize:10, color:"#9ca3af", textTransform:"uppercase", letterSpacing:"0.04em" }}>Sem contato</div>
+        <div style={{ fontSize:12, fontWeight:700, color: dSSM === null ? "#9ca3af" : dSSM > 365 ? "#dc2626" : dSSM > 180 ? "#ea580c" : "#d97706" }}>
+          {dSSM !== null ? `${dSSM}d` : "—"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RescueRow({ c, i, onNavigate }) {
+  const T = useT();
+  const rL = rescueLabel(c.rescue);
+  const cL = churnLabel(c.churn);
+  const cloudH = [...(c.azureHistory||[]),...(c.awsHistory||[])].map(Number).filter(v=>!isNaN(v)&&v>0);
+  return (
+    <div onClick={() => onNavigate("detail", c)}
+      style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8,
+        background: T.cardAlt, cursor:"pointer", border:`1px solid ${T.border}` }}>
+      <div style={{ width:36, height:36, borderRadius:"50%", border:`2.5px solid ${rL.color}`,
+        display:"flex", alignItems:"center", justifyContent:"center",
+        fontWeight:900, fontSize:14, color:rL.color, flexShrink:0, fontFamily:"monospace" }}>
+        {c.rescue}
+      </div>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontSize:13, fontWeight:600, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.name}</div>
+        <div style={{ display:"flex", gap:6, marginTop:3, alignItems:"center" }}>
+          <TechBadge tech={c.tech}/>
+          <span style={{ fontSize:10, color:c.category==="Premium"?"#7c3aed":T.textSub }}>{c.category}</span>
+        </div>
+      </div>
+      <Sparkline data={cloudH.length ? cloudH : c.m365History} color={cloudH.length ? "#3b82f6" : "#f43f5e"}/>
+      <div style={{ textAlign:"right", flexShrink:0 }}>
+        <div style={{ fontSize:10, color:"#9ca3af", textTransform:"uppercase", letterSpacing:"0.04em" }}>Churn</div>
+        <div style={{ fontSize:12, fontWeight:700, color:cL.color, fontFamily:"monospace" }}>{c.churn}</div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 function Dashboard({ clients, onNavigate }) {
   const T = useT();
 
-  // Clientes com contato SSM recente (≤ 30 dias) são excluídos das listas de risco/resgate
-  const isRecentContact = c => {
+  const scored = useMemo(() => clients.map(c => {
     const d = daysSince(c.lastContactSSM);
-    return d !== null && d <= 90;
-  };
+    return {
+      ...c,
+      churn: calcChurnRisk(c),
+      rescue: calcRescuePotential(c),
+      recentContact: d !== null && d <= 90,
+    };
+  }), [clients]);
 
-  const scored = useMemo(() => clients.map(c => ({
-    ...c,
-    churn: calcChurnRisk(c),
-    rescue: calcRescuePotential(c),
-    recentContact: isRecentContact(c),
-  })), [clients]);
-
-  // ── Risco de Churn: clientes com churn alto/crítico E sem contato recente
   const churnList = useMemo(() =>
-    [...scored]
-      .filter(c => c.churn >= 45 && !c.recentContact)
-      .sort((a, b) => b.churn - a.churn),
+    [...scored].filter(c => c.churn >= 45 && !c.recentContact).sort((a,b) => b.churn - a.churn),
   [scored]);
 
-  // ── Potencial de Resgate: clientes com bom potencial, sem contato recente, excluindo os de churn crítico já listados acima
   const rescueList = useMemo(() =>
-    [...scored]
-      .filter(c => c.rescue >= 40 && !c.recentContact)
-      .sort((a, b) => b.rescue - a.rescue),
+    [...scored].filter(c => c.rescue >= 40 && !c.recentContact).sort((a,b) => b.rescue - a.rescue),
   [scored]);
 
-  const critical = scored.filter(c => c.churn >= 70).length;
-  const highRisk  = scored.filter(c => c.churn >= 45 && c.churn < 70).length;
+  const critical   = scored.filter(c => c.churn >= 70).length;
+  const highRisk   = scored.filter(c => c.churn >= 45 && c.churn < 70).length;
   const highRescue = scored.filter(c => c.rescue >= 65).length;
-  const techDist = useMemo(() => clients.reduce((a,c)=>{a[c.tech]=(a[c.tech]||0)+1;return a;},{}), [clients]);
+  const techDist   = useMemo(() => clients.reduce((a,c)=>{a[c.tech]=(a[c.tech]||0)+1;return a;},{}), [clients]);
 
   const StatCard = ({ label, value, color, sub }) => (
     <div style={{ background:T.card, borderRadius:12, padding:"18px 20px", border:`1px solid ${T.border}`, borderTop:`3px solid ${color}`, flex:1, minWidth:120 }}>
@@ -498,68 +551,6 @@ function Dashboard({ clients, onNavigate }) {
       {sub && <div style={{ fontSize:11, color:T.textSub, marginTop:2 }}>{sub}</div>}
     </div>
   );
-
-  // ── Linha de cliente para o painel de Churn
-  const ChurnRow = ({ c, i }) => {
-    const cL = churnLabel(c.churn);
-    const dSSM = daysSince(c.lastContactSSM);
-    return (
-      <div onClick={() => onNavigate("detail", c)}
-        style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8,
-          background: i === 0 ? "#fef2f2" : T.cardAlt, cursor:"pointer",
-          border:`1px solid ${i === 0 ? "#fecaca" : T.border}` }}>
-        <div style={{ width:36, height:36, borderRadius:"50%", border:`2.5px solid ${cL.color}`,
-          display:"flex", alignItems:"center", justifyContent:"center",
-          fontWeight:900, fontSize:14, color:cL.color, flexShrink:0, fontFamily:"monospace" }}>
-          {c.churn}
-        </div>
-        <div style={{ flex:1, minWidth:0 }}>
-          <div style={{ fontSize:13, fontWeight:600, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.name}</div>
-          <div style={{ display:"flex", gap:6, marginTop:3, alignItems:"center", flexWrap:"wrap" }}>
-            <TechBadge tech={c.tech}/>
-            <span style={{ fontSize:10, color:"#6b7280" }}>{c.inactivityReason || "—"}</span>
-          </div>
-        </div>
-        <div style={{ textAlign:"right", flexShrink:0 }}>
-          <div style={{ fontSize:10, color:"#9ca3af", textTransform:"uppercase", letterSpacing:"0.04em" }}>Sem contato</div>
-          <div style={{ fontSize:12, fontWeight:700, color: dSSM === null ? "#9ca3af" : dSSM > 365 ? "#dc2626" : dSSM > 180 ? "#ea580c" : "#d97706" }}>
-            {dSSM !== null ? `${dSSM}d` : "—"}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ── Linha de cliente para o painel de Resgate
-  const RescueRow = ({ c, i }) => {
-    const rL = rescueLabel(c.rescue);
-    const cL = churnLabel(c.churn);
-    const cloudH = [...(c.azureHistory||[]),...(c.awsHistory||[])].map(Number).filter(v=>!isNaN(v)&&v>0);
-    return (
-      <div onClick={() => onNavigate("detail", c)}
-        style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8,
-          background: T.cardAlt, cursor:"pointer", border:`1px solid ${T.border}` }}>
-        <div style={{ width:36, height:36, borderRadius:"50%", border:`2.5px solid ${rL.color}`,
-          display:"flex", alignItems:"center", justifyContent:"center",
-          fontWeight:900, fontSize:14, color:rL.color, flexShrink:0, fontFamily:"monospace" }}>
-          {c.rescue}
-        </div>
-        <div style={{ flex:1, minWidth:0 }}>
-          <div style={{ fontSize:13, fontWeight:600, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.name}</div>
-          <div style={{ display:"flex", gap:6, marginTop:3, alignItems:"center" }}>
-            <TechBadge tech={c.tech}/>
-            <span style={{ fontSize:10, color:c.category==="Premium"?"#7c3aed":T.textSub }}>{c.category}</span>
-          </div>
-        </div>
-        <Sparkline data={cloudH.length ? cloudH : c.m365History} color={cloudH.length ? "#3b82f6" : "#f43f5e"}/>
-        {/* Churn secundário — contexto, não protagonista */}
-        <div style={{ textAlign:"right", flexShrink:0 }}>
-          <div style={{ fontSize:10, color:"#9ca3af", textTransform:"uppercase", letterSpacing:"0.04em" }}>Churn</div>
-          <div style={{ fontSize:12, fontWeight:700, color:cL.color, fontFamily:"monospace" }}>{c.churn}</div>
-        </div>
-      </div>
-    );
-  };
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
@@ -589,7 +580,7 @@ function Dashboard({ clients, onNavigate }) {
                 ✅ Nenhum cliente em risco sem contato recente.
               </div>
             )}
-            {churnList.slice(0, 8).map((c, i) => <ChurnRow key={c.id} c={c} i={i} />)}
+            {churnList.slice(0, 8).map((c, i) => <ChurnRow key={c.id} c={c} i={i} onNavigate={onNavigate} />)}
             {churnList.length > 8 && (
               <div style={{ fontSize:12, color:"#dc2626", textAlign:"center", paddingTop:4 }}>
                 +{churnList.length - 8} clientes · veja a lista completa em Clientes
@@ -612,7 +603,7 @@ function Dashboard({ clients, onNavigate }) {
                 Nenhum cliente com potencial de resgate identificado.
               </div>
             )}
-            {rescueList.slice(0, 8).map((c, i) => <RescueRow key={c.id} c={c} i={i} />)}
+            {rescueList.slice(0, 8).map((c, i) => <RescueRow key={c.id} c={c} i={i} onNavigate={onNavigate} />)}
             {rescueList.length > 8 && (
               <div style={{ fontSize:12, color:"#1d4ed8", textAlign:"center", paddingTop:4 }}>
                 +{rescueList.length - 8} clientes · veja a lista completa em Clientes
