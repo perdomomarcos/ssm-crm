@@ -64,12 +64,6 @@ function toDB(c) {
   };
 }
 
-function safeArr(v) {
-  if (Array.isArray(v)) return v;
-  if (typeof v === "string") { try { const p = JSON.parse(v); if (Array.isArray(p)) return p; } catch {} }
-  return [];
-}
-
 function fromDB(r) {
   return {
     id:r.id, name:r.name, tech:r.tech||"Desconhecido", nContracts:r.n_contracts||"1",
@@ -80,8 +74,8 @@ function fromDB(r) {
     commercialContact:r.commercial_contact||"Desconhecido", renewalHistory:r.renewal_history||"Desconhecido",
     inactivityReason:r.inactivity_reason||"Desconhecido", observations:r.observations||"",
     folderPath:r.folder_path||"", brFrequency:r.br_frequency||"Trimestral",
-    awsHistory:safeArr(r.aws_history), azureHistory:safeArr(r.azure_history),
-    m365History:safeArr(r.m365_history), brReviews:safeArr(r.br_reviews),
+    awsHistory:r.aws_history||[], azureHistory:r.azure_history||[],
+    m365History:r.m365_history||[], brReviews:r.br_reviews||[],
   };
 }
 
@@ -320,19 +314,7 @@ function trendLabel(t) {
 
 // ─── Storage ──────────────────────────────────────────────────────────────────
 function loadClients() {
-  try {
-    const r = localStorage.getItem(STORAGE_KEY);
-    if (r) {
-      const list = JSON.parse(r);
-      return list.map(c => ({
-        ...c,
-        awsHistory: safeArr(c.awsHistory),
-        azureHistory: safeArr(c.azureHistory),
-        m365History: safeArr(c.m365History),
-        brReviews: safeArr(c.brReviews),
-      }));
-    }
-  } catch {}
+  try { const r = localStorage.getItem(STORAGE_KEY); if (r) return JSON.parse(r); } catch {}
   return [];
 }
 function saveClients(list) {
@@ -476,12 +458,25 @@ function Matrix({ clients }) {
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 function Dashboard({ clients, onNavigate }) {
   const T = useT();
-  const scored = useMemo(() => clients.map(c => ({ ...c, churn:calcChurnRisk(c), rescue:calcRescuePotential(c) })), [clients]);
+  const scored = useMemo(() => clients.map(c => ({
+    ...c,
+    churn: calcChurnRisk(c),
+    rescue: calcRescuePotential(c),
+  })), [clients]);
   const critical = scored.filter(c => c.churn>=70).length;
   const highRisk = scored.filter(c => c.churn>=45&&c.churn<70).length;
   const highRescue = scored.filter(c => c.rescue>=65).length;
-  const top6 = [...scored].sort((a,b)=>(b.churn+b.rescue)-(a.churn+a.rescue)).slice(0,6);
   const techDist = useMemo(() => clients.reduce((a,c)=>{a[c.tech]=(a[c.tech]||0)+1;return a;},{}), [clients]);
+  // Painel Churn: churn >= 45, sem contato SSM nos últimos 90 dias
+  const churnList = scored
+    .filter(c => c.churn >= 45 && (daysSince(c.lastContactSSM) === null || daysSince(c.lastContactSSM) > 90))
+    .sort((a,b) => b.churn - a.churn)
+    .slice(0, 8);
+  // Painel Resgate: rescue >= 40, sem contato SSM nos últimos 90 dias
+  const rescueList = scored
+    .filter(c => c.rescue >= 40 && (daysSince(c.lastContactSSM) === null || daysSince(c.lastContactSSM) > 90))
+    .sort((a,b) => b.rescue - a.rescue)
+    .slice(0, 8);
 
   const StatCard = ({ label, value, color, sub }) => (
     <div style={{ background:T.card, borderRadius:12, padding:"18px 20px", border:`1px solid ${T.border}`, borderTop:`3px solid ${color}`, flex:1, minWidth:120 }}>
@@ -500,39 +495,58 @@ function Dashboard({ clients, onNavigate }) {
         <StatCard label="Alto Potencial"    value={highRescue}     color="#7c3aed" sub="resgate ≥ 65" />
       </div>
 
-      <div style={{ display:"grid", gridTemplateColumns:"1.4fr 1fr", gap:16 }}>
-        {/* Top 6 */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+        {/* Painel Risco de Churn */}
         <div style={{ background:T.card, borderRadius:12, border:`1px solid ${T.border}`, padding:20 }}>
-          <div style={{ fontSize:14, fontWeight:700, color:T.text, marginBottom:14 }}>🎯 Prioridade — Maiores Churn + Potencial</div>
+          <div style={{ fontSize:14, fontWeight:700, color:"#dc2626", marginBottom:4 }}>🔴 Risco de Churn</div>
+          <div style={{ fontSize:11, color:T.textMuted, marginBottom:14 }}>Churn ≥ 45 · sem contato nos últimos 90 dias</div>
           <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-            {top6.map((c,i) => {
-              const cL = churnLabel(c.churn), rL = rescueLabel(c.rescue);
-              const q = matrixQuadrant(c.churn, c.rescue);
-              const cloudH = [...(c.azureHistory||[]),...(c.awsHistory||[])].map(Number).filter(v=>!isNaN(v)&&v>0);
+            {churnList.map((c,i) => {
+              const cL = churnLabel(c.churn);
+              const d = daysSince(c.lastContactSSM);
               return (
-                <div key={c.id} onClick={()=>onNavigate("detail",c)} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8, background:i===0?"#fef2f2":T.cardAlt, cursor:"pointer", border:`1px solid ${i===0?"#fecaca":T.border}` }}>
-                  <span style={{ fontWeight:800, color:"#9ca3af", fontSize:13, width:18 }}>{i+1}</span>
+                <div key={c.id} onClick={()=>onNavigate("detail",c)} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8, background:T.cardAlt, cursor:"pointer", border:`1px solid ${T.border}` }}>
+                  <div style={{ width:36, height:36, borderRadius:8, background:cL.bg, border:`1px solid ${cL.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:14, color:cL.color, fontFamily:"monospace", flexShrink:0 }}>{c.churn}</div>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:13, fontWeight:600, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.name}</div>
-                    <div style={{ display:"flex", gap:6, marginTop:3, alignItems:"center" }}>
+                    <div style={{ display:"flex", gap:6, marginTop:2, alignItems:"center" }}>
                       <TechBadge tech={c.tech}/>
-                      <span style={{ fontSize:10, color:q.color, fontWeight:700, background:q.bg, borderRadius:4, padding:"1px 5px" }}>{q.label}</span>
+                      <span style={{ fontSize:10, color:T.textSub }}>{c.inactivityReason||"—"}</span>
                     </div>
                   </div>
-                  <Sparkline data={cloudH.length?cloudH:c.m365History} color={cloudH.length?"#3b82f6":"#f43f5e"}/>
-                  <div style={{ display:"flex", gap:4 }}>
-                    <div style={{ textAlign:"center", background:"#fef2f2", borderRadius:6, padding:"3px 6px" }}>
-                      <div style={{ fontSize:9, color:"#9ca3af", textTransform:"uppercase" }}>Churn</div>
-                      <div style={{ fontSize:15, fontWeight:900, color:cL.color, fontFamily:"monospace" }}>{c.churn}</div>
-                    </div>
-                    <div style={{ textAlign:"center", background:"#eff6ff", borderRadius:6, padding:"3px 6px" }}>
-                      <div style={{ fontSize:9, color:"#9ca3af", textTransform:"uppercase" }}>Resgate</div>
-                      <div style={{ fontSize:15, fontWeight:900, color:rL.color, fontFamily:"monospace" }}>{c.rescue}</div>
-                    </div>
+                  <div style={{ fontSize:10, color: d===null?"#dc2626": d>365?"#dc2626": d>180?"#ea580c":"#d97706", fontWeight:700, textAlign:"right", flexShrink:0 }}>
+                    {d===null?"sem data":`${d}d`}
                   </div>
                 </div>
               );
             })}
+            {churnList.length===0 && <div style={{ fontSize:12, color:T.textSub, padding:"12px 0" }}>Nenhum cliente em risco com contato pendente.</div>}
+          </div>
+        </div>
+
+        {/* Painel Potencial de Resgate */}
+        <div style={{ background:T.card, borderRadius:12, border:`1px solid ${T.border}`, padding:20 }}>
+          <div style={{ fontSize:14, fontWeight:700, color:"#1d4ed8", marginBottom:4 }}>⭐ Potencial de Resgate</div>
+          <div style={{ fontSize:11, color:T.textMuted, marginBottom:14 }}>Resgate ≥ 40 · sem contato nos últimos 90 dias</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            {rescueList.map((c,i) => {
+              const rL = rescueLabel(c.rescue);
+              const cloudH = [...(c.azureHistory||[]),...(c.awsHistory||[])].map(Number).filter(v=>!isNaN(v)&&v>0);
+              return (
+                <div key={c.id} onClick={()=>onNavigate("detail",c)} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8, background:T.cardAlt, cursor:"pointer", border:`1px solid ${T.border}` }}>
+                  <div style={{ width:36, height:36, borderRadius:8, background:rL.bg, border:`1px solid ${rL.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:14, color:rL.color, fontFamily:"monospace", flexShrink:0 }}>{c.rescue}</div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:600, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.name}</div>
+                    <div style={{ display:"flex", gap:6, marginTop:2, alignItems:"center" }}>
+                      <TechBadge tech={c.tech}/>
+                      <span style={{ fontSize:10, color:T.textSub }}>{c.category}</span>
+                    </div>
+                  </div>
+                  <Sparkline data={cloudH.length?cloudH:(c.m365History||[])} color={cloudH.length?"#3b82f6":"#f43f5e"}/>
+                </div>
+              );
+            })}
+            {rescueList.length===0 && <div style={{ fontSize:12, color:T.textSub, padding:"12px 0" }}>Nenhum cliente com alto potencial de resgate pendente.</div>}
           </div>
         </div>
 
