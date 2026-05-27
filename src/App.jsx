@@ -534,7 +534,7 @@ function Dashboard({ clients, onNavigate }) {
                       <span style={{ fontSize:10, color:q.color, fontWeight:700, background:q.bg, borderRadius:4, padding:"1px 5px" }}>{q.label}</span>
                     </div>
                   </div>
-                  <Sparkline data={cloudH.length?cloudH:c.m365History} color={cloudH.length?"#3b82f6":"#f43f5e"}/>
+                  <Sparkline data={cloudH.length?cloudH:histValues(c.m365History)} color={cloudH.length?"#3b82f6":"#f43f5e"}/>
                   <div style={{ display:"flex", gap:4 }}>
                     <div style={{ textAlign:"center", background:"#fef2f2", borderRadius:6, padding:"3px 6px" }}>
                       <div style={{ fontSize:9, color:"#9ca3af", textTransform:"uppercase" }}>Churn</div>
@@ -689,7 +689,7 @@ function ClientList({ clients, onSelect, onAdd, onImport, importing }) {
                     <span style={{ fontSize:11, fontWeight:700, color:q.color, background:q.bg, borderRadius:6, padding:"2px 8px", whiteSpace:"nowrap" }}>{q.label}</span>
                   </td>
                   <td style={{ padding:"11px 12px" }}>
-                    <Sparkline data={cloudH.length?cloudH:c.m365History} color={cloudH.length?"#3b82f6":"#f43f5e"}/>
+                    <Sparkline data={cloudH.length?cloudH:histValues(c.m365History)} color={cloudH.length?"#3b82f6":"#f43f5e"}/>
                   </td>
                   <td style={{ padding:"11px 12px" }}>
                     <span style={{ fontSize:12, color:T.text }}>{c.lastContactSSM||c.lastContactLog||"—"}</span>
@@ -1244,7 +1244,7 @@ function ClientDetail({ client, onSave, onBack, onDelete }) {
           <HistViz label="AWS — Valor mensal" data={client.awsHistory} color="#f97316"/>
           <HistViz label="Azure — Valor mensal" data={client.azureHistory} color="#3b82f6"/>
           <HistViz label="M365-CSP — Licenças ativas" data={client.m365History} color="#f43f5e"/>
-          {!cloudH.length&&!(client.m365History||[]).some(v=>v>0)&&(
+          {!cloudH.length&&!histValues(client.m365History).some(v=>v>0)&&(
             <div style={{ fontSize:13, color:T.textSub }}>Nenhum histórico de consumo cadastrado.</div>
           )}
         </div>
